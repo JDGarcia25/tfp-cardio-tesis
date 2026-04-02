@@ -1,0 +1,56 @@
+dataset_name: mitbih
+dataset_path: ./data/mitbih
+
+models:
+  - kmeans
+  - dbscan
+  - hdbscan
+  - autoencoder
+
+# Representacion: "signal_pca" (Path A) o "manual_features" (Path B)
+representation: signal_pca
+
+# Senal ECG
+sampling_rate: 360
+before_r_samples: 90
+after_r_samples: 110
+filter_lowcut: 0.5
+filter_highcut: 40.0
+filter_order: 4
+
+# PCA (Path A)
+pca_variance_threshold: 0.95
+
+# Registros excluidos (ritmos de marcapasos - recomendacion AAMI)
+excluded_records:
+  - "102"
+  - "104"
+  - "107"
+  - "217"
+
+# Hiperparametros de modelos
+kmeans_params:
+  n_clusters: 2
+  random_state: 42
+  n_init: 10
+
+dbscan_params:
+  eps: auto
+  min_samples: 10
+
+hdbscan_params:
+  min_cluster_size: 15
+  min_samples: 10
+
+autoencoder_params:
+  encoding_dim: 32
+  hidden_layers: [128, 64]
+  epochs: 50
+  batch_size: 256
+  anomaly_percentile: 95
+  learning_rate: 0.001
+
+# Salida
+output_dir: ./results
+generate_plots: true
+logging_level: INFO

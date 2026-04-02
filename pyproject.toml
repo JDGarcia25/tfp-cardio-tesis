@@ -1,0 +1,46 @@
+[tool.poetry]
+name = "ecg-anomaly"
+version = "0.1.0"
+description = "Evaluacion comparativa de metodos de clustering no supervisado y autoencoder para deteccion de anomalias en senales ECG - Universidad CESMAG 2026"
+authors = ["Garcia Alvarez Elian", "Garcia Zambrano Juan David"]
+readme = "README.md"
+packages = [{include = "ecg_anomaly", from = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.24"
+scipy = "^1.10"
+pandas = "^2.0"
+scikit-learn = "^1.3"
+wfdb = "^4.1"
+PyWavelets = "^1.4"
+hdbscan = "^0.8.33"
+tensorflow = "^2.14"
+matplotlib = "^3.7"
+seaborn = "^0.13"
+plotly = "^5.18"
+pyyaml = "^6.0"
+psutil = "^5.9"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4"
+pytest-cov = "^4.1"
+ruff = "^0.1"
+
+[tool.poetry.scripts]
+ecg-run = "ecg_anomaly.pipeline:main"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
