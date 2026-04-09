@@ -10,6 +10,55 @@ El codigo sigue principios de ingenieria de software profesional:
 4. **Testabilidad:** Cada componente es testeable independientemente
 5. **Reproducibilidad:** Seeds fijos, configuracion versionada, logging completo
 
+## Estructura de carpetas del proyecto
+
+```
+tfp-cardio/
+├── config/                  # Configuracion centralizada
+│   └── default.yaml
+├── data/                    # Datos MIT-BIH descargados (no versionados)
+├── docs/                    # Documentacion del TFP
+├── notebooks/               # Jupyter notebooks de exploracion
+│   ├── 01_data_exploration.ipynb
+│   ├── 02_preprocessing.ipynb
+│   ├── 03_feature_extraction.ipynb
+│   ├── 04_clustering.ipynb
+│   └── 05_evaluation.ipynb
+├── results/                 # Salidas del pipeline (graficos, reportes, modelos)
+├── src/ecg_anomaly/         # Paquete principal (codigo de produccion)
+│   ├── config.py
+│   ├── data/
+│   ├── preprocessing/
+│   ├── features/
+│   ├── models/
+│   ├── evaluation/
+│   ├── visualization/
+│   └── pipeline.py
+├── tests/                   # Tests unitarios
+├── pyproject.toml           # Configuracion del proyecto y dependencias (Poetry)
+└── requirements.txt         # Dependencias alternativas (pip)
+```
+
+### Justificacion de cada carpeta
+
+| Carpeta | Proposito | Por que esta separada |
+|---|---|---|
+| `config/` | Archivos YAML con hiperparametros, rutas y opciones del pipeline | Permite modificar el comportamiento del sistema **sin tocar codigo**. Facilita la experimentacion y la reproducibilidad al versionar la configuracion junto al proyecto. |
+| `data/` | Almacena los registros MIT-BIH en formato WFDB (.dat, .hea, .atr) | Se excluye del control de versiones (`.gitignore`) porque los datos son pesados y publicos. Separar datos de codigo evita que el repositorio crezca innecesariamente. |
+| `docs/` | Documentacion tecnica del trabajo final de posgrado | Mantener la documentacion junto al codigo garantiza que se actualice en paralelo y sirve como referencia inmediata para cualquier colaborador. |
+| `notebooks/` | Jupyter notebooks para exploracion, prototipado y visualizacion interactiva | Los notebooks son herramientas de investigacion exploratoria; separarlos del paquete `src/` deja claro que no son parte del sistema de produccion sino del proceso de analisis previo. |
+| `results/` | Graficos, tablas comparativas, modelos serializados y reportes generados por el pipeline | Se excluye del control de versiones porque son **artefactos reproducibles**: ejecutar el pipeline los regenera. Separarlos evita mezclar salidas con codigo fuente. |
+| `src/ecg_anomaly/` | Paquete Python instalable con todo el codigo de produccion | Usar la convencion `src/` layout aisla el paquete del directorio raiz, evitando importaciones accidentales de archivos locales y asegurando que los tests siempre importan la version instalada del paquete. |
+| `tests/` | Tests unitarios con pytest | Separar tests del codigo fuente es la convencion estandar de Python. Permite ejecutar `pytest` desde la raiz sin contaminar el paquete distribuible. |
+
+### Por que esta organizacion
+
+La estructura sigue tres criterios:
+
+1. **Separacion de concerns:** Cada carpeta tiene un rol unico — configuracion, datos, codigo, tests, resultados y documentacion no se mezclan.
+2. **Reproducibilidad:** Al separar lo que se versiona (codigo, config, docs) de lo que se genera (data, results), cualquier persona puede clonar el repositorio, descargar los datos y reproducir los resultados desde cero.
+3. **Escalabilidad:** Agregar un nuevo modelo, una nueva metrica o un nuevo notebook no requiere reorganizar carpetas existentes; cada tipo de artefacto tiene su lugar predefinido.
+
 ## Patrones de diseno utilizados
 
 ### 1. Factory (Fabrica)
