@@ -35,6 +35,10 @@ Esta documentacion explica **paso a paso** el por que y el como de cada parte de
 
 - **[09 - Manual de Ejecucion](09_manual_ejecucion.md)** — Guia paso a paso para instalar, configurar, ejecutar el pipeline y los tests. Incluye tiempos esperados, salida real verificada, y solucion de problemas comunes.
 
+### Referencia
+
+- **[10 - Fundamentos de Python](10_python_fundamentos.md)** — Mini curso de Python usando ejemplos reales del proyecto: variables, imports (`from`), funciones, clases, herencia, clases abstractas, decoradores (`@dataclass`, `@property`, `@classmethod`), type hints, context managers, list comprehensions y patrones de diseno.
+
 ---
 
 ## Orden de lectura recomendado
@@ -42,7 +46,7 @@ Esta documentacion explica **paso a paso** el por que y el como de cada parte de
 Si es tu primera vez:
 
 ```
-00 (Vision) → 01 (Datos) → 02 (Preprocesamiento) → 03 (Features)
+10 (Python) → 00 (Vision) → 01 (Datos) → 02 (Preprocesamiento) → 03 (Features)
 → 04 (Modelos) → 05 (Evaluacion) → 06 (Pipeline) → 07 (DSR) → 08 (Arquitectura)
 ```
 
