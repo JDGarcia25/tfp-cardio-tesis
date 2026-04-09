@@ -204,53 +204,140 @@ config.py (sin dependencias)
 
 **Nota:** Los modulos de hojas (sin dependencias del proyecto) son los mas faciles de testear y reutilizar.
 
-## Estructura de archivos completa
+## Detalle del paquete `src/ecg_anomaly/`
+
+El paquete `src/ecg_anomaly/` contiene todo el codigo de produccion. Cada subpaquete corresponde a una etapa del pipeline de deteccion de anomalias en senales ECG y se puede entender, testear y reutilizar de forma independiente.
 
 ```
 src/ecg_anomaly/
-├── __init__.py              # Paquete raiz
-├── config.py                # SystemConfig dataclass + carga YAML/JSON
-│
-├── data/
-│   ├── __init__.py
-│   ├── registry.py          # Catalogo MIT-BIH, constantes AAMI, clasificacion
-│   └── loader.py            # MITBIHLoader → ECGDataset con registros
-│
-├── preprocessing/
-│   ├── __init__.py
-│   ├── filters.py           # butterworth_bandpass(), notch_filter()
-│   ├── qrs_detection.py     # pan_tompkins(), xqrs_detect()
-│   ├── segmentation.py      # segment_beats(), normalize_beats()
-│   └── pipeline.py          # PreprocessingPipeline → PreprocessedData
-│
-├── features/
-│   ├── __init__.py
-│   ├── signal_pca.py        # SignalPCAExtractor (Path A)
-│   └── manual.py            # ManualFeatureExtractor (Path B, 12 features)
-│
-├── models/
-│   ├── __init__.py
-│   ├── base.py              # BaseAnomalyDetector (ABC)
-│   ├── kmeans.py            # KMeansDetector (anomalia = cluster minoritario)
-│   ├── dbscan.py            # DBSCANDetector (anomalia = ruido, auto-eps)
-│   ├── hdbscan_model.py     # HDBSCANDetector (anomalia = ruido, auto-config)
-│   ├── autoencoder.py       # AutoencoderDetector (anomalia = error > umbral)
-│   └── factory.py           # DetectorFactory (crea por nombre)
-│
-├── evaluation/
-│   ├── __init__.py
-│   ├── intrinsic.py         # evaluate_intrinsic() → Silhouette, DB, CH
-│   ├── extrinsic.py         # evaluate_extrinsic() → F1, Sensitivity, AUC
-│   ├── efficiency.py        # EfficiencyTracker (context manager)
-│   └── comparator.py        # ModelComparator (orquesta 3 niveles)
-│
-├── visualization/
-│   ├── __init__.py
-│   ├── signals.py           # Graficos de senales ECG
-│   ├── clusters.py          # Scatter PCA, distribucion anomalias
-│   └── reports.py           # Tablas comparativas, confusion matrices
-│
-└── pipeline.py              # ECGAnomalyPipeline (Facade) + main() (CLI)
+├── config.py                # Configuracion centralizada
+├── data/                    # Carga de datos MIT-BIH
+├── preprocessing/           # Filtrado, segmentacion y normalizacion
+├── features/                # Extraccion de representaciones
+├── models/                  # Algoritmos de deteccion
+├── evaluation/              # Metricas y comparacion
+├── visualization/           # Graficos y reportes visuales
+└── pipeline.py              # Orquestador principal (Facade)
+```
+
+### `config.py` — Configuracion centralizada
+
+Define la dataclass `SystemConfig` que contiene **todos** los parametros del sistema: rutas de datos, hiperparametros de cada modelo, especificaciones de filtros (Butterworth 0.5–40 Hz, orden 4), ventana de segmentacion (90 muestras antes y 110 despues del pico R = 200 muestras por latido), y umbral de varianza para PCA (95%).
+
+**Por que existe:** Centralizar la configuracion en un unico punto permite cambiar el comportamiento del sistema editando un archivo YAML, sin modificar codigo. Tambien facilita la reproducibilidad: cada experimento queda definido por su archivo de configuracion.
+
+**Que expone:**
+- `SystemConfig.from_yaml()` / `from_json()` — Carga desde archivo
+- `SystemConfig.save_yaml()` — Persiste la configuracion usada
+- `SystemConfig.setup_logging()` — Configura el logging del sistema
+
+### `data/` — Carga y catalogo de datos
+
+| Archivo | Que hace |
+| --- | --- |
+| `registry.py` | Define las constantes del estandar AAMI: simbolos normales (N, L, R, e, j), anomalos (A, a, J, S, V, E, F, /, f, Q) y no-latido. Cataloga los 48 registros MIT-BIH en 5 categorias clinicas y excluye los 4 registros con marcapasos (102, 104, 107, 217). |
+| `loader.py` | `MITBIHLoader` carga los registros usando la libreria `wfdb`, aplica la clasificacion binaria del registry (0=normal, 1=anomalo) y retorna un `ECGDataset` con objetos `ECGRecord` (senal, posiciones R, etiquetas). |
+
+**Por que es un subpaquete separado:** Aislar la logica de acceso a datos permite cambiar la fuente (archivos locales vs PhysioNet) sin afectar al resto del sistema. El registry actua como fuente unica de verdad para la clasificacion de latidos.
+
+### `preprocessing/` — Procesamiento de senales
+
+| Archivo | Que hace |
+| --- | --- |
+| `filters.py` | Implementa `butterworth_bandpass()` (elimina deriva de linea base <0.5 Hz y ruido >40 Hz con filtrado de fase cero) y `notch_filter()` (elimina interferencia de red electrica 50/60 Hz). |
+| `qrs_detection.py` | Detectores de picos R: `pan_tompkins()` (algoritmo clasico con bandpass, derivada, cuadrado y media movil) y `xqrs_detect()` (detector robusto de WFDB). Opcionales, ya que MIT-BIH provee anotaciones. |
+| `segmentation.py` | `segment_beats()` extrae ventanas de longitud fija alrededor de cada pico R. `normalize_beats()` aplica normalizacion Z-score por latido. |
+| `pipeline.py` | `PreprocessingPipeline` orquesta las tres etapas (filtrar → segmentar → normalizar) y retorna un `PreprocessedData` con los segmentos listos para extraer features. |
+
+**Por que es un subpaquete separado:** El preprocesamiento de senales biomedicas tiene complejidad propia (filtros digitales, deteccion QRS, normalizacion). Separarlo permite testear cada transformacion individualmente y reutilizar los filtros en otros contextos.
+
+### `features/` — Extraccion de representaciones
+
+Ofrece **dos caminos** para representar los latidos como vectores numericos que los modelos de clustering pueden procesar:
+
+| Archivo | Camino | Que hace |
+| --- | --- | --- |
+| `signal_pca.py` | **Path A: Senal + PCA** | `SignalPCAExtractor` aplica StandardScaler + PCA, reduciendo los 200 puntos del latido a las componentes que retienen el 95% de la varianza. Tambien expone `get_raw_for_autoencoder()` que retorna los datos escalados sin reducir (el autoencoder maneja su propia reduccion via la capa de encoding). |
+| `manual.py` | **Path B: Features manuales** | `ManualFeatureExtractor` calcula 12 features morfologicas y estadisticas por latido: amplitud R, amplitud S, duracion QRS, rango, intervalo RR actual, ratio RR, diferencia RR, media, desviacion estandar, curtosis, frecuencia dominante (FFT) y energia espectral. |
+
+**Por que es un subpaquete separado:** La representacion de datos es una decision de diseno clave que afecta directamente el rendimiento de los modelos. Tener dos caminos independientes permite comparar empiricamente cual representacion produce mejores resultados, que es uno de los objetivos del trabajo.
+
+### `models/` — Algoritmos de deteccion de anomalias
+
+Implementa 4 detectores con complejidad creciente, todos bajo la misma interfaz abstracta:
+
+| Archivo | Nivel | Estrategia de deteccion |
+| --- | --- | --- |
+| `base.py` | — | Define `BaseAnomalyDetector` (ABC) con los metodos `fit()`, `predict_anomalies()` y `get_params()`. Todos los detectores heredan de esta clase. |
+| `kmeans.py` | 1 — Baseline | `KMeansDetector`: el cluster mayoritario es normal, los minoritarios son anomalias. Parametros: k=2, seed=42. |
+| `dbscan.py` | 2 — Densidad | `DBSCANDetector`: los puntos marcados como ruido (label=-1) son anomalias. Incluye `_optimize_eps()` que calcula epsilon automaticamente con el metodo de la distancia k al percentil 90. |
+| `hdbscan_model.py` | 3 — Densidad jerarquica | `HDBSCANDetector`: misma logica que DBSCAN pero sin necesidad de epsilon; selecciona la densidad optima automaticamente. |
+| `autoencoder.py` | 4 — Deep learning | `AutoencoderDetector`: entrena una red encoder-decoder simetrica (input→128→64→32→64→128→input). Los latidos con error de reconstruccion > percentil 95 se clasifican como anomalias. |
+| `factory.py` | — | `DetectorFactory`: crea detectores por nombre. Agregar un modelo nuevo requiere una sola linea de registro. |
+
+**Por que es un subpaquete separado:** La comparacion de multiples algoritmos es el nucleo del trabajo. El patron Strategy permite que el comparador trate todos los modelos de forma identica, y el Factory desacopla la creacion de la ejecucion.
+
+### `evaluation/` — Metricas y comparacion
+
+Implementa tres niveles de evaluacion alineados con la metodologia del trabajo:
+
+| Archivo | Nivel | Que mide |
+| --- | --- | --- |
+| `intrinsic.py` | Intrinseco | `evaluate_intrinsic()` calcula Silhouette (-1 a 1), Davies-Bouldin (menor=mejor) y Calinski-Harabasz — miden la calidad de los clusters sin usar etiquetas reales. |
+| `extrinsic.py` | Extrinseco | `evaluate_extrinsic()` compara predicciones contra etiquetas AAMI reales: Accuracy, Sensitivity, Specificity, Precision, F1, AUC-ROC y la matriz de confusion (TP, FP, TN, FN). |
+| `efficiency.py` | Eficiencia | `EfficiencyTracker` es un context manager que mide tiempo de ejecucion y pico de memoria (via `tracemalloc`) de cada modelo. |
+| `comparator.py` | Orquestador | `ModelComparator` ejecuta los 4 modelos, recolecta las metricas de los 3 niveles y genera una tabla comparativa como DataFrame. |
+
+**Por que es un subpaquete separado:** Separar las metricas del entrenamiento permite reutilizar las funciones de evaluacion con cualquier modelo (incluso externo) y agregar nuevas metricas sin modificar los detectores.
+
+### `visualization/` — Graficos y reportes visuales
+
+| Archivo | Que genera |
+| --- | --- |
+| `signals.py` | Graficos de senales ECG: senal cruda vs filtrada, senal con picos R marcados, superposicion de latidos segmentados. |
+| `clusters.py` | Scatter 2D de las dos primeras componentes PCA coloreado por cluster o por etiqueta binaria; graficos de barras comparando distribucion real vs predicha de anomalias. |
+| `reports.py` | Paneles comparativos de metricas (intrinsecas, extrinsecas, eficiencia) por modelo, heatmaps de matrices de confusion, y `save_full_report()` que genera un directorio completo con CSV + PNG. |
+
+**Por que es un subpaquete separado:** La visualizacion no tiene logica de negocio — solo consume resultados y produce graficos. Separarla permite que los modulos de computo (models, evaluation) sean independientes de la capa de presentacion.
+
+### `pipeline.py` — Orquestador principal (Facade)
+
+`ECGAnomalyPipeline` es el punto de entrada que coordina todas las etapas en una sola llamada:
+
+```python
+pipeline = ECGAnomalyPipeline(config)
+results = pipeline.run()  # Ejecuta TODO el flujo
+```
+
+Internamente ejecuta: carga de datos → preprocesamiento → extraccion de features (Path A o B segun configuracion) → evaluacion de los 4 modelos → generacion de reportes. Tambien expone `main()` como CLI con argumentos `--config` y `--representation`.
+
+**Por que existe como modulo raiz:** Es el unico archivo que depende de todos los demas. Ubicarlo en la raiz del paquete deja claro que es la fachada del sistema y no pertenece a ningun subpaquete especifico.
+
+### Flujo de datos entre subpaquetes
+
+```
+config.py ──→ Parametros a todos los modulos
+                │
+         data/ (MIT-BIH)
+                │ ECGDataset
+                ▼
+      preprocessing/ (Filtrar → Segmentar → Normalizar)
+                │ PreprocessedData [N, 200]
+                ▼
+        features/ (Path A: PCA  |  Path B: 12 features manuales)
+                │ X_clustering [N, d]  +  X_autoencoder [N, 200]
+                ▼
+         models/ (KMeans → DBSCAN → HDBSCAN → Autoencoder)
+                │ anomaly_labels_ [N]
+                ▼
+      evaluation/ (Intrinseco + Extrinseco + Eficiencia)
+                │ DataFrame comparativo
+                ▼
+     visualization/ (Graficos + Reportes)
+                │
+                ▼
+           results/ (CSV + PNG)
+```
 ```
 
 ## Gestion de dependencias con Poetry
