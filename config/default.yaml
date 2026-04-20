@@ -1,5 +1,5 @@
 dataset_name: mitbih
-dataset_path: ./data/mitbih
+dataset_path: ../BD2-20260218T192722Z-1-001/BD2
 
 models:
   - kmeans
