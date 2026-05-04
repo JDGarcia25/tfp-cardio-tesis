@@ -93,6 +93,7 @@ class ECGAnomalyPipeline:
                 preprocessed.segments,
                 preprocessed.r_peaks_flat,
                 self.config.sampling_rate,
+                preprocessed.record_indices,
             )
             # Autoencoder usa senal directa escalada
             scaler = StandardScaler()

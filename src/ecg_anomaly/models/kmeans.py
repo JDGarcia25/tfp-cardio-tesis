@@ -20,6 +20,7 @@ class KMeansDetector(BaseAnomalyDetector):
     """
 
     def fit(self, X: np.ndarray) -> "KMeansDetector":
+        self._train_data = X
         self.model = KMeans(**self.params)
         self.labels_ = self.model.fit_predict(X)
         self._assign_anomalies()
