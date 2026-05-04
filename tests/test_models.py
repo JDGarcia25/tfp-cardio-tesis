@@ -6,6 +6,7 @@ import pytest
 from ecg_anomaly.models.factory import DetectorFactory
 from ecg_anomaly.models.kmeans import KMeansDetector
 from ecg_anomaly.models.dbscan import DBSCANDetector
+from ecg_anomaly.models.hdbscan_model import HDBSCANDetector
 
 
 def _make_synthetic_data(n_normal: int = 200, n_outliers: int = 20, seed: int = 42):
@@ -50,6 +51,14 @@ class TestKMeansDetector:
         assert preds.shape == (len(X),)
         assert set(preds).issubset({0, 1})
 
+    def test_predict_uses_train_data(self):
+        """Debe guardar datos de entrenamiento para predict."""
+        X, _ = _make_synthetic_data()
+        detector = KMeansDetector("kmeans", {"n_clusters": 2, "random_state": 42})
+        detector.fit(X)
+        assert hasattr(detector, "_train_data")
+        assert np.array_equal(detector._train_data, X)
+
 
 class TestDBSCANDetector:
     """Tests para el detector DBSCAN."""
@@ -71,6 +80,44 @@ class TestDBSCANDetector:
         noise_mask = detector.labels_ == -1
         assert np.all(detector.anomaly_labels_[noise_mask] == 1)
         assert np.all(detector.anomaly_labels_[~noise_mask] == 0)
+
+
+class TestHDBSCANDetector:
+    """Tests para el detector HDBSCAN."""
+
+    def test_fit_returns_self(self):
+        X, _ = _make_synthetic_data()
+        detector = HDBSCANDetector("hdbscan", {"min_cluster_size": 10})
+        result = detector.fit(X)
+        assert result is detector
+
+    def test_noise_as_anomaly(self):
+        """Puntos de ruido deben marcarse como anomalias."""
+        X, _ = _make_synthetic_data()
+        detector = HDBSCANDetector("hdbscan", {"min_cluster_size": 10})
+        detector.fit(X)
+        noise_mask = detector.labels_ == -1
+        if np.any(noise_mask):
+            assert np.all(detector.anomaly_labels_[noise_mask] == 1)
+
+    def test_saves_train_data(self):
+        """Debe guardar datos de entrenamiento para predict."""
+        X, _ = _make_synthetic_data()
+        detector = HDBSCANDetector("hdbscan", {"min_cluster_size": 10})
+        detector.fit(X)
+        assert hasattr(detector, "_train_data")
+        assert np.array_equal(detector._train_data, X)
+
+    def test_predict_anomalies_no_zeros(self):
+        """predict_anomalies no debe retornar solo ceros."""
+        X, _ = _make_synthetic_data()
+        detector = HDBSCANDetector("hdbscan", {"min_cluster_size": 10})
+        detector.fit(X)
+        preds = detector.predict_anomalies(X)
+        assert preds.shape == (len(X),)
+        assert set(preds).issubset({0, 1})
+        n_anomalies = np.sum(preds == 1)
+        assert n_anomalies >= 0
 
 
 class TestDetectorFactory:

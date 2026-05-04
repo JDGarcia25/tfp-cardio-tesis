@@ -27,13 +27,12 @@ class HDBSCANDetector(BaseAnomalyDetector):
 
     def fit(self, X: np.ndarray) -> "HDBSCANDetector":
         try:
-            # Intentar usar sklearn.cluster.HDBSCAN (scikit-learn >= 1.3)
             from sklearn.cluster import HDBSCAN
         except ImportError:
-            # Fallback a la libreria hdbscan standalone
             from hdbscan import HDBSCAN
 
-        self.model = HDBSCAN(**self.params)
+        self._train_data = X
+        self.model = HDBSCAN(**self.params, copy=True)
         self.labels_ = self.model.fit_predict(X)
         self.anomaly_labels_ = np.where(self.labels_ == -1, 1, 0)
 
@@ -52,12 +51,11 @@ class HDBSCANDetector(BaseAnomalyDetector):
             labels, _ = approximate_predict(self.model, X)
             return np.where(labels == -1, 1, 0)
         except (ImportError, AttributeError):
-            # Fallback: usar NearestNeighbors sobre core samples
             from sklearn.neighbors import NearestNeighbors
 
             core_mask = self.labels_ >= 0
-            core_data = self._fit_data[core_mask] if hasattr(self, "_fit_data") else None
-            if core_data is None:
+            core_data = self._train_data[core_mask]
+            if core_data is None or len(core_data) == 0:
                 logger.warning("HDBSCAN predict_anomalies: sin datos de entrenamiento")
                 return np.zeros(len(X), dtype=int)
             neigh = NearestNeighbors(n_neighbors=1)

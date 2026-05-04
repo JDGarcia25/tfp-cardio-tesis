@@ -8,7 +8,6 @@ from sklearn.preprocessing import StandardScaler
 
 logger = logging.getLogger(__name__)
 
-# Nombres de las 12 features extraidas
 FEATURE_NAMES: List[str] = [
     "r_amplitude",
     "s_amplitude",
@@ -41,18 +40,20 @@ class ManualFeatureExtractor:
         segments: np.ndarray,
         r_peak_positions: np.ndarray,
         fs: int = 360,
+        record_indices: np.ndarray | None = None,
     ) -> np.ndarray:
         """Extrae y escala features de los segmentos.
 
         Args:
             segments: Array [N, beat_length] con latidos normalizados.
-            r_peak_positions: Posiciones absolutas de los picos R.
+            r_peak_positions: Posiciones absolutas de los picos R en la senal original.
             fs: Frecuencia de muestreo.
+            record_indices: Array [N] indicando el registro de cada latido.
 
         Returns:
             Array [N, 12] con features escaladas (StandardScaler).
         """
-        features = self._extract_raw(segments, r_peak_positions, fs)
+        features = self._extract_raw(segments, r_peak_positions, fs, record_indices)
         scaled = self.scaler.fit_transform(features)
         self._is_fitted = True
 
@@ -64,84 +65,73 @@ class ManualFeatureExtractor:
         segments: np.ndarray,
         r_peak_positions: np.ndarray,
         fs: int,
+        record_indices: np.ndarray | None = None,
     ) -> np.ndarray:
         """Extrae features sin escalar."""
         n_beats = len(segments)
-        before_r = segments.shape[1] // 2  # Posicion del pico R en el segmento
+        before_r = segments.shape[1] // 2
 
-        # Calcular intervalos RR globales
-        rr_intervals = np.diff(r_peak_positions) / fs * 1000.0  # en ms
-        mean_rr = np.mean(rr_intervals) if len(rr_intervals) > 0 else 800.0
+        rr_intervals = self._compute_rr_intervals(r_peak_positions, fs, record_indices)
+        valid_rr = rr_intervals[rr_intervals > 0]
+        mean_rr = np.mean(valid_rr) if len(valid_rr) > 0 else 800.0
 
         features = np.zeros((n_beats, len(FEATURE_NAMES)))
 
         for i, seg in enumerate(segments):
-            r_idx = before_r  # Pico R esta en la posicion 'before' del segmento
+            r_idx = before_r
 
-            # --- Morfologicas (4) ---
-            features[i, 0] = seg[r_idx]  # r_amplitude
-            # S wave: minimo en los 30 muestras despues del pico R
+            features[i, 0] = seg[r_idx]
             s_region = seg[r_idx : min(r_idx + 30, len(seg))]
-            features[i, 1] = np.min(s_region) if len(s_region) > 0 else 0.0  # s_amplitude
-            features[i, 2] = self._estimate_qrs_duration(seg, r_idx, fs)  # qrs_duration (ms)
-            features[i, 3] = np.max(seg) - np.min(seg)  # amplitude_range
+            features[i, 1] = np.min(s_region) if len(s_region) > 0 else 0.0
+            features[i, 2] = self._estimate_qrs_duration(seg, r_idx, fs)
+            features[i, 3] = np.max(seg) - np.min(seg)
 
-            # --- Intervalos RR (3) ---
-            if i < len(rr_intervals):
-                features[i, 4] = rr_intervals[i]  # rr_current
-                features[i, 5] = (
-                    rr_intervals[i] / mean_rr if mean_rr > 0 else 1.0
-                )  # rr_ratio
+            if i > 0 and rr_intervals[i] > 0:
+                features[i, 4] = rr_intervals[i]
+                features[i, 5] = rr_intervals[i] / mean_rr if mean_rr > 0 else 1.0
             else:
                 features[i, 4] = mean_rr
                 features[i, 5] = 1.0
 
-            if i > 0 and i < len(rr_intervals):
-                features[i, 6] = rr_intervals[i] - rr_intervals[i - 1]  # rr_diff
+            if i > 1 and rr_intervals[i] > 0 and rr_intervals[i - 1] > 0:
+                features[i, 6] = rr_intervals[i] - rr_intervals[i - 1]
             else:
                 features[i, 6] = 0.0
 
-            # --- Estadisticas (3) ---
-            features[i, 7] = np.mean(seg)  # mean
-            features[i, 8] = np.std(seg)  # std
-            features[i, 9] = self._kurtosis(seg)  # kurtosis
+            features[i, 7] = np.mean(seg)
+            features[i, 8] = np.std(seg)
+            features[i, 9] = self._kurtosis(seg)
 
-            # --- Frecuencia (2) ---
             fft_vals = np.abs(np.fft.fft(seg))
             half = len(fft_vals) // 2
-            features[i, 10] = np.argmax(fft_vals[:half])  # dominant_freq
-            features[i, 11] = np.sum(fft_vals[:half] ** 2)  # spectral_energy
+            features[i, 10] = np.argmax(fft_vals[:half])
+            features[i, 11] = np.sum(fft_vals[:half] ** 2)
 
         return features
 
     @staticmethod
     def _estimate_qrs_duration(seg: np.ndarray, r_idx: int, fs: int) -> float:
-        """Estima la duracion del complejo QRS en milisegundos.
-
-        Busca los puntos donde la derivada cambia de signo alrededor del pico R.
-        """
+        """Estima la duracion del complejo QRS en milisegundos."""
         derivative = np.diff(seg)
-        search_range = int(0.06 * fs)  # ~60ms hacia cada lado
+        search_range = int(0.06 * fs)
 
-        # Buscar inicio del QRS (cambio de signo antes del R)
         start = r_idx
         for j in range(r_idx - 1, max(r_idx - search_range, 0), -1):
             if j < len(derivative) and abs(derivative[j]) < 0.1 * abs(derivative[r_idx - 1]):
                 start = j
                 break
 
-        # Buscar fin del QRS (cambio de signo despues del R)
         end = r_idx
         for j in range(r_idx, min(r_idx + search_range, len(derivative))):
             if abs(derivative[j]) < 0.1 * abs(derivative[r_idx]):
                 end = j
                 break
 
-        return (end - start) / fs * 1000.0  # ms
+        return (end - start) / fs * 1000.0
 
     @staticmethod
     def _kurtosis(x: np.ndarray) -> float:
-        """Calcula kurtosis (excess kurtosis) sin depender de pandas."""
+        """Calcula excess kurtosis sin pandas."""
         n = len(x)
         if n < 4:
             return 0.0
@@ -151,3 +141,23 @@ class ManualFeatureExtractor:
             return 0.0
         m4 = np.mean((x - mean) ** 4)
         return m4 / (std ** 4) - 3.0
+
+    @staticmethod
+    def _compute_rr_intervals(
+        r_peak_positions: np.ndarray, fs: int, record_indices: np.ndarray | None = None
+    ) -> np.ndarray:
+        """Calcula intervalos RR hacia el latido anterior del mismo registro."""
+        n = len(r_peak_positions)
+        rr = np.zeros(n)
+
+        if record_indices is None:
+            diffs = np.diff(r_peak_positions) / fs * 1000.0
+            rr[1:] = diffs
+            return rr
+
+        record_indices = np.asarray(record_indices)
+        for i in range(1, n):
+            if record_indices[i] == record_indices[i - 1]:
+                rr[i] = (r_peak_positions[i] - r_peak_positions[i - 1]) / fs * 1000.0
+
+        return rr
