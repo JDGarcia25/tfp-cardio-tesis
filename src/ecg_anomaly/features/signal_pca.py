@@ -3,8 +3,13 @@
 import logging
 
 import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+try:
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import StandardScaler
+except ModuleNotFoundError:
+    PCA = None
+    StandardScaler = None
+    logging.warning("sklearn module not installed. PCA extraction will not be available.")
 
 logger = logging.getLogger(__name__)
 
