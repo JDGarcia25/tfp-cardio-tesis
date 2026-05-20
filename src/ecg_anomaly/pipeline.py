@@ -4,9 +4,12 @@ Orquesta todo el flujo: carga -> preprocesamiento -> features -> modelos -> eval
 """
 
 import argparse
+import json
 import logging
 from pathlib import Path
 
+import joblib
+import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
@@ -38,6 +41,8 @@ class ECGAnomalyPipeline:
         self.config = config
         config.setup_logging()
         self.comparator = ModelComparator(config)
+        self._scaler: StandardScaler | None = None
+        self._pca = None
 
     def run(self) -> pd.DataFrame:
         """Ejecuta el pipeline completo.
@@ -68,8 +73,11 @@ class ECGAnomalyPipeline:
         logger.info("[4/5] Ejecutando y evaluando modelos...")
         results_df = self.comparator.run_all(X_clustering, X_autoencoder, preprocessed.labels)
 
-        # 6. Reporte
-        logger.info("[5/5] Generando reporte...")
+        # 6. Guardar mejor modelo
+        logger.info("[5/5] Guardando mejor modelo y generando reporte...")
+        self._save_best_model()
+
+        # 7. Reporte
         self._generate_report(results_df)
 
         # Resumen
@@ -87,6 +95,8 @@ class ECGAnomalyPipeline:
             extractor = SignalPCAExtractor(self.config.pca_variance_threshold)
             X_clustering = extractor.fit_transform(preprocessed.segments)
             X_autoencoder = extractor.get_raw_for_autoencoder(preprocessed.segments)
+            self._scaler = extractor.scaler
+            self._pca = extractor.pca
         elif self.config.representation == "manual_features":
             extractor = ManualFeatureExtractor()
             X_clustering = extractor.extract(
@@ -95,9 +105,10 @@ class ECGAnomalyPipeline:
                 self.config.sampling_rate,
                 preprocessed.record_indices,
             )
-            # Autoencoder usa senal directa escalada
             scaler = StandardScaler()
             X_autoencoder = scaler.fit_transform(preprocessed.segments)
+            self._scaler = extractor.scaler
+            self._pca = None
         else:
             raise ValueError(
                 f"Representacion '{self.config.representation}' no soportada. "
@@ -110,6 +121,81 @@ class ECGAnomalyPipeline:
             X_autoencoder.shape,
         )
         return X_clustering, X_autoencoder
+
+    def _save_best_model(self) -> None:
+        """Guarda el mejor modelo (por F1) en ./models/."""
+        best_name = self.comparator.get_best_model("extrinsic_f1")
+        if not best_name:
+            logger.warning("No se pudo determinar el mejor modelo, se omite guardado.")
+            return
+
+        detector = None
+        for d in self.comparator.detectors:
+            if d.name == best_name:
+                detector = d
+                break
+
+        if detector is None:
+            logger.warning("Detector '%s' no encontrado, se omite guardado.", best_name)
+            return
+
+        best_result = None
+        for r in self.comparator.results:
+            if r["model"] == best_name:
+                best_result = r
+                break
+
+        models_dir = Path("./models")
+        model_dir = models_dir / best_name
+        model_dir.mkdir(parents=True, exist_ok=True)
+
+        # best_model.json
+        model_type = best_name
+        if best_result:
+            params = best_result.get("params", {})
+            threshold = params.get("threshold", None)
+        else:
+            threshold = None
+
+        best_meta = {
+            "model_name": best_name,
+            "model_type": model_type,
+            "representation": self.config.representation,
+            "metric": "extrinsic_f1",
+        }
+        with open(models_dir / "best_model.json", "w") as f:
+            json.dump(best_meta, f, indent=2)
+
+        # scaler.joblib
+        if self._scaler is not None:
+            joblib.dump(self._scaler, model_dir / "scaler.joblib")
+
+        # pca.joblib (solo signal_pca)
+        if self._pca is not None:
+            joblib.dump(self._pca, model_dir / "pca.joblib")
+
+        # config.json
+        config_data = {"representation": self.config.representation}
+        if threshold is not None:
+            config_data["threshold"] = threshold
+        if best_name in ("kmeans", "dbscan", "hdbscan"):
+            if hasattr(detector, "_majority_cluster"):
+                config_data["majority_cluster"] = int(detector._majority_cluster)
+            elif hasattr(detector, "labels_"):
+                unique, counts = np.unique(detector.labels_, return_counts=True)
+                majority = int(unique[np.argmax(counts)])
+                config_data["majority_cluster"] = majority
+        with open(model_dir / "config.json", "w") as f:
+            json.dump(config_data, f, indent=2)
+
+        # Artefactos especificos del modelo
+        if best_name == "autoencoder":
+            if hasattr(detector, "model") and detector.model is not None:
+                detector.model.save(str(model_dir / "model.h5"))
+        else:
+            joblib.dump(detector, model_dir / "detector.joblib")
+
+        logger.info("Mejor modelo '%s' (F1) guardado en: %s", best_name, model_dir)
 
     def _generate_report(self, results_df: pd.DataFrame) -> None:
         """Genera y guarda el reporte de resultados."""
