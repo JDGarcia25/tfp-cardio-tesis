@@ -21,6 +21,8 @@ seaborn = "^0.13"
 plotly = "^5.18"
 pyyaml = "^6.0"
 psutil = "^5.9"
+fastapi = "^0.111"
+uvicorn = {extras = ["standard"], version = "^0.29"}
 ipykernel = "^7.2.0"
 nbconvert = "^7.17.1"
 
@@ -31,6 +33,7 @@ ruff = "^0.1"
 
 [tool.poetry.scripts]
 ecg-run = "ecg_anomaly.pipeline:main"
+ecg-serve = "ecg_anomaly.api.app:serve"
 
 [tool.ruff]
 line-length = 100

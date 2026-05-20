@@ -1,11 +1,10 @@
 dataset_name: mitbih
-dataset_path: ../BD2-20260218T192722Z-1-001/BD2
+dataset_path: BD2-20260218T192722Z-1-001/BD2
 
 models:
   - kmeans
   - dbscan
   - hdbscan
-  - autoencoder
 
 # Representacion: "signal_pca" (Path A) o "manual_features" (Path B)
 representation: signal_pca
