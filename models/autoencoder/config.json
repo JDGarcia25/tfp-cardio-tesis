@@ -1,3 +1,4 @@
 {
-  "threshold": 0.17141813103335668
+  "representation": "signal_pca",
+  "threshold": 0.44088635173673596
 }

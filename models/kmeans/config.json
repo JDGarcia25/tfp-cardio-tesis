@@ -1,1 +1,4 @@
-{}
+{
+  "representation": "signal_pca",
+  "distance_threshold": 11.879881069850299
+}

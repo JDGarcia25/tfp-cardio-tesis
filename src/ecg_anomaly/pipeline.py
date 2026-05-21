@@ -73,11 +73,22 @@ class ECGAnomalyPipeline:
         logger.info("[4/5] Ejecutando y evaluando modelos...")
         results_df = self.comparator.run_all(X_clustering, X_autoencoder, preprocessed.labels)
 
-        # 6. Guardar mejor modelo
-        logger.info("[5/5] Guardando mejor modelo y generando reporte...")
-        self._save_best_model()
+        # 6. Guardar todos los modelos entrenados (ANTES de per-record, que es muy lento)
+        logger.info("[6/5] Guardando todos los modelos...")
+        self._save_all_models()
 
-        # 7. Reporte
+        # 5b. Evaluacion por registro (opcional, labels por registro)
+        record_indices = getattr(preprocessed, "record_indices", None)
+        if record_indices is not None:
+            logger.info("[5b/5] Evaluacion por registro...")
+            per_record_df = self.comparator.run_all_per_record(
+                X_clustering, X_autoencoder, preprocessed.labels, record_indices
+            )
+            self._per_record_df = per_record_df
+        else:
+            self._per_record_df = None
+
+        # Reporte
         self._generate_report(results_df)
 
         # Resumen
@@ -86,6 +97,18 @@ class ECGAnomalyPipeline:
         logger.info("MEJOR MODELO (F1): %s", best)
         logger.info("=" * 60)
         print("\n" + results_df.to_string(index=False))
+
+        # Mostrar resumen per-record si existe
+        if self._per_record_df is not None:
+            avg_rows = self._per_record_df[
+                self._per_record_df["model"].str.contains("_macro_avg", na=False)
+            ]
+            if len(avg_rows) > 0:
+                print("\n--- Evaluacion por registro (promedio macro) ---")
+                print(avg_rows.to_string(index=False, columns=[
+                    "model", "f1", "sensitivity", "specificity", "precision",
+                    "f1_std", "f1_above_05"
+                ]))
 
         return results_df
 
@@ -122,80 +145,64 @@ class ECGAnomalyPipeline:
         )
         return X_clustering, X_autoencoder
 
-    def _save_best_model(self) -> None:
-        """Guarda el mejor modelo (por F1) en ./models/."""
-        best_name = self.comparator.get_best_model("extrinsic_f1")
-        if not best_name:
-            logger.warning("No se pudo determinar el mejor modelo, se omite guardado.")
-            return
-
-        detector = None
-        for d in self.comparator.detectors:
-            if d.name == best_name:
-                detector = d
-                break
-
-        if detector is None:
-            logger.warning("Detector '%s' no encontrado, se omite guardado.", best_name)
-            return
-
-        best_result = None
-        for r in self.comparator.results:
-            if r["model"] == best_name:
-                best_result = r
-                break
-
+    def _save_all_models(self) -> None:
+        """Guarda todos los modelos entrenados en ./models/."""
         models_dir = Path("./models")
-        model_dir = models_dir / best_name
-        model_dir.mkdir(parents=True, exist_ok=True)
+        best_name = self.comparator.get_best_model("extrinsic_f1")
 
-        # best_model.json
-        model_type = best_name
-        if best_result:
-            params = best_result.get("params", {})
-            threshold = params.get("threshold", None)
-        else:
-            threshold = None
+        for detector in self.comparator.detectors:
+            name = detector.name
+            result = next((r for r in self.comparator.results if r["model"] == name), None)
 
-        best_meta = {
-            "model_name": best_name,
-            "model_type": model_type,
-            "representation": self.config.representation,
-            "metric": "extrinsic_f1",
-        }
-        with open(models_dir / "best_model.json", "w") as f:
-            json.dump(best_meta, f, indent=2)
+            model_dir = models_dir / name
+            model_dir.mkdir(parents=True, exist_ok=True)
 
-        # scaler.joblib
-        if self._scaler is not None:
-            joblib.dump(self._scaler, model_dir / "scaler.joblib")
+            # scaler.joblib (compartido)
+            if self._scaler is not None:
+                joblib.dump(self._scaler, model_dir / "scaler.joblib")
 
-        # pca.joblib (solo signal_pca)
-        if self._pca is not None:
-            joblib.dump(self._pca, model_dir / "pca.joblib")
+            # pca.joblib (compartido)
+            if self._pca is not None:
+                joblib.dump(self._pca, model_dir / "pca.joblib")
 
-        # config.json
-        config_data = {"representation": self.config.representation}
-        if threshold is not None:
-            config_data["threshold"] = threshold
-        if best_name in ("kmeans", "dbscan", "hdbscan"):
-            if hasattr(detector, "_majority_cluster"):
-                config_data["majority_cluster"] = int(detector._majority_cluster)
-            elif hasattr(detector, "labels_"):
+            # config.json
+            config_data = {"representation": self.config.representation}
+            if result:
+                params = result.get("params", {})
+                threshold = params.get("threshold", None)
+                if threshold is not None:
+                    config_data["threshold"] = threshold
+            if name == "kmeans" and hasattr(detector, "_threshold"):
+                config_data["distance_threshold"] = float(detector._threshold)
+            if name in ("dbscan", "hdbscan") and hasattr(detector, "labels_"):
                 unique, counts = np.unique(detector.labels_, return_counts=True)
-                majority = int(unique[np.argmax(counts)])
-                config_data["majority_cluster"] = majority
-        with open(model_dir / "config.json", "w") as f:
-            json.dump(config_data, f, indent=2)
+                non_noise = unique[unique >= 0]
+                if len(non_noise) > 0:
+                    majority = int(non_noise[np.argmax(counts[unique >= 0])])
+                    config_data["majority_cluster"] = majority
+            with open(model_dir / "config.json", "w") as f:
+                json.dump(config_data, f, indent=2)
 
-        # Artefactos especificos del modelo
-        if best_name == "autoencoder":
-            if hasattr(detector, "model") and detector.model is not None:
-                detector.model.save(str(model_dir / "model.h5"))
-        else:
-            joblib.dump(detector, model_dir / "detector.joblib")
+            # Artefactos especificos del modelo
+            if name == "autoencoder":
+                if hasattr(detector, "model") and detector.model is not None:
+                    detector.model.save(str(model_dir / "model.h5"))
+            else:
+                joblib.dump(detector, model_dir / "detector.joblib")
 
-        logger.info("Mejor modelo '%s' (F1) guardado en: %s", best_name, model_dir)
+            logger.info("Modelo '%s' guardado en: %s", name, model_dir)
+
+        # best_model.json (solo referencia cual es el mejor)
+        if best_name:
+            best_meta = {
+                "model_name": best_name,
+                "model_type": best_name,
+                "representation": self.config.representation,
+                "metric": "extrinsic_f1",
+                "available_models": [d.name for d in self.comparator.detectors],
+            }
+            with open(models_dir / "best_model.json", "w") as f:
+                json.dump(best_meta, f, indent=2)
 
     def _generate_report(self, results_df: pd.DataFrame) -> None:
         """Genera y guarda el reporte de resultados."""

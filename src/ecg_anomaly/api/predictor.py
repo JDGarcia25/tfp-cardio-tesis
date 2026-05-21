@@ -85,7 +85,7 @@ class ModelPredictor:
             os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
             import tensorflow as tf  # noqa: PLC0415
 
-            self._keras_model = tf.keras.models.load_model(str(model_path / "model.h5"))
+            self._keras_model = tf.keras.models.load_model(str(model_path / "model.h5"), compile=False)
             with open(model_path / "config.json") as f:
                 cfg = json.load(f)
             self._threshold = cfg["threshold"]

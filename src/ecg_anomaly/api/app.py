@@ -236,7 +236,7 @@ def _save_plot(segments: np.ndarray, results: List[Dict[str, Any]]) -> None:
     cols = 5
     rows = max(1, math.ceil(n / cols))
     fig, axes = plt.subplots(rows, cols, figsize=(cols * 3, rows * 2))
-    axes = axes.flatten() if n > 1 else [axes]
+    axes = axes.flatten()
     for i in range(n):
         color = "#27ae60" if results[i]["prediction"] == 0 else "#e74c3c"
         axes[i].plot(segments[i], color=color, linewidth=0.8)

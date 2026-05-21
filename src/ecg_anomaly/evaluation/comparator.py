@@ -120,12 +120,100 @@ class ModelComparator:
 
         return self.get_comparison_table()
 
+    def run_all_per_record(
+        self,
+        X_clustering: np.ndarray,
+        X_autoencoder: np.ndarray,
+        true_labels: np.ndarray,
+        record_indices: np.ndarray,
+    ) -> pd.DataFrame:
+        """Ejecuta modelos con evaluacion por registro (fit global, predict por registro).
+
+        Entrena cada modelo UNA vez con todos los datos, luego evalua
+        por separado en cada registro y promedia las metricas.
+
+        Args:
+            X_clustering: Features para clustering.
+            X_autoencoder: Features para autoencoder.
+            true_labels: Etiquetas binarias AAMI.
+            record_indices: Array [N] con indice del registro de cada latido.
+
+        Returns:
+            DataFrame con metricas promedio por modelo (macro y micro).
+        """
+        per_record_rows = []
+        n_records = int(np.max(record_indices)) + 1
+
+        for model_name in self.config.models:
+            if model_name == "autoencoder":
+                logger.info("Saltando autoencoder en evaluacion por registro (muy lento)")
+                continue
+
+            params = getattr(self.config, f"{model_name}_params", {})
+            detector = DetectorFactory.create(model_name, params)
+            X = X_clustering
+
+            # Fit global (una vez)
+            logger.info("Entrenando %s (global) para evaluacion por registro...", model_name)
+            with EfficiencyTracker() as tracker:
+                detector.fit(X)
+
+            # Evaluar por registro
+            f1_list, sens_list, spec_list, prec_list = [], [], [], []
+            for rec_id in range(n_records):
+                mask = record_indices == rec_id
+                n_beats = int(np.sum(mask))
+                if n_beats < 30:
+                    continue
+
+                X_rec = X[mask]
+                y_rec = true_labels[mask]
+
+                pred = detector.predict_anomalies(X_rec)
+                extrinsic = evaluate_extrinsic(y_rec, pred)
+
+                f1_list.append(extrinsic.get("f1", 0))
+                sens_list.append(extrinsic.get("sensitivity", 0))
+                spec_list.append(extrinsic.get("specificity", 0))
+                prec_list.append(extrinsic.get("precision", 0))
+
+                per_record_rows.append({
+                    "model": model_name,
+                    "record": int(rec_id),
+                    "n_beats": n_beats,
+                    **extrinsic,
+                })
+
+            # Agregar fila de promedio
+            if f1_list:
+                per_record_rows.append({
+                    "model": f"{model_name}_macro_avg",
+                    "record": -1,
+                    "n_beats": len(f1_list),
+                    "accuracy": np.mean(f1_list),
+                    "f1": np.mean(f1_list),
+                    "sensitivity": np.mean(sens_list),
+                    "specificity": np.mean(spec_list),
+                    "precision": np.mean(prec_list),
+                    "f1_std": np.std(f1_list),
+                    "sens_std": np.std(sens_list),
+                    "spec_std": np.std(spec_list),
+                    "prec_std": np.std(prec_list),
+                    "f1_above_05": np.mean(np.array(f1_list) > 0.5),
+                })
+
+        df_per_record = pd.DataFrame(per_record_rows)
+        logger.info(
+            "Evaluacion por registro completada: %d filas",
+            len(df_per_record),
+        )
+        return df_per_record
+
     def get_comparison_table(self) -> pd.DataFrame:
         """Genera tabla comparativa de todos los modelos evaluados."""
         if not self.results:
             return pd.DataFrame()
 
-        # Seleccionar columnas relevantes para la tabla
         rows = []
         for r in self.results:
             row = {
@@ -151,7 +239,6 @@ class ModelComparator:
         if not self.results:
             return None
 
-        # Metricas donde menor es mejor
         lower_is_better = {"intrinsic_davies_bouldin", "efficiency_time_seconds"}
 
         best_idx = 0
