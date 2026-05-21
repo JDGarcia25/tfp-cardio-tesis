@@ -1,6 +1,6 @@
 {
-  "model_name": "kmeans",
-  "model_type": "kmeans",
+  "model_name": "autoencoder",
+  "model_type": "autoencoder",
   "representation": "signal_pca",
   "metric": "extrinsic_f1",
   "available_models": [

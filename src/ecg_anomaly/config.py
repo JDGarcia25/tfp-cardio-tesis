@@ -49,21 +49,30 @@ class SystemConfig:
 
     # Hiperparametros por modelo
     kmeans_params: Dict = field(
-        default_factory=lambda: {"n_clusters": 2, "random_state": 42, "n_init": 10}
+        default_factory=lambda: {
+            "n_clusters": 10,
+            "random_state": 42,
+            "n_init": 20,
+            "distance_percentile": 89.5,
+        }
     )
     dbscan_params: Dict = field(
-        default_factory=lambda: {"eps": "auto", "min_samples": 10}
+        default_factory=lambda: {"eps": "auto", "min_samples": 5, "eps_percentile": 75}
     )
     hdbscan_params: Dict = field(
-        default_factory=lambda: {"min_cluster_size": 15, "min_samples": 10}
+        default_factory=lambda: {
+            "min_cluster_size": 30,
+            "min_samples": 15,
+            "cluster_selection_epsilon": 0.5,
+        }
     )
     autoencoder_params: Dict = field(
         default_factory=lambda: {
-            "encoding_dim": 32,
-            "hidden_layers": [128, 64],
-            "epochs": 50,
+            "encoding_dim": 6,
+            "hidden_layers": [10, 8],
+            "epochs": 30,
             "batch_size": 256,
-            "anomaly_percentile": 95,
+            "anomaly_rate": 0.105,
             "learning_rate": 0.001,
         }
     )
@@ -80,9 +89,27 @@ class SystemConfig:
 
     @classmethod
     def from_yaml(cls, path: str) -> "SystemConfig":
-        """Carga configuracion desde archivo YAML."""
+        """Carga configuracion desde archivo YAML.
+        
+        Resuelve dataset_path relativo a la raiz del proyecto
+        (donde esta pyproject.toml) para evitar errores de CWD.
+        """
+        yaml_path = Path(path).resolve()
+        # Buscar la raiz del proyecto (donde esta pyproject.toml)
+        project_root = yaml_path.parent
+        while not (project_root / "pyproject.toml").exists():
+            if project_root.parent == project_root:
+                break
+            project_root = project_root.parent
+        
         with open(path, "r") as f:
             config_dict = yaml.safe_load(f)
+        
+        # Resolver dataset_path relativo a la raiz del proyecto
+        dp = config_dict.get("dataset_path", "")
+        if dp and not Path(dp).is_absolute():
+            config_dict["dataset_path"] = str((project_root / dp).resolve())
+        
         return cls(**config_dict)
 
     @classmethod

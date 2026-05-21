@@ -21,6 +21,10 @@ FEATURE_NAMES: List[str] = [
     "kurtosis",
     "dominant_freq",
     "spectral_energy",
+    "rr_pre",
+    "rr_post",
+    "rr_ratio_pre_post",
+    "rr_dev",
 ]
 
 
@@ -106,6 +110,22 @@ class ManualFeatureExtractor:
             half = len(fft_vals) // 2
             features[i, 10] = np.argmax(fft_vals[:half])
             features[i, 11] = np.sum(fft_vals[:half] ** 2)
+
+            # Nuevas features RR-interval (indices 12-15)
+            rr_val = rr_intervals[i] if rr_intervals[i] > 0 else mean_rr
+            features[i, 12] = rr_val
+
+            if i < n_beats - 1 and rr_intervals[i + 1] > 0:
+                features[i, 13] = rr_intervals[i + 1]
+            else:
+                features[i, 13] = rr_val
+
+            if features[i, 12] > 0 and features[i, 13] > 0:
+                features[i, 14] = features[i, 12] / features[i, 13]
+            else:
+                features[i, 14] = 1.0
+
+            features[i, 15] = abs(rr_val - mean_rr) / mean_rr if mean_rr > 0 else 0.0
 
         return features
 

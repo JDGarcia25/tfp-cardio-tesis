@@ -20,41 +20,53 @@ def _make_synthetic_data(n_normal: int = 200, n_outliers: int = 20, seed: int = 
 
 
 class TestKMeansDetector:
-    """Tests para el detector K-Means."""
+    """Tests para el detector K-Means con distance-scoring."""
 
     def test_fit_returns_self(self):
         X, _ = _make_synthetic_data()
-        detector = KMeansDetector("kmeans", {"n_clusters": 2, "random_state": 42})
+        detector = KMeansDetector("kmeans", {"n_clusters": 3, "random_state": 42, "distance_percentile": 90})
         result = detector.fit(X)
         assert result is detector
 
     def test_assigns_labels(self):
         X, _ = _make_synthetic_data()
-        detector = KMeansDetector("kmeans", {"n_clusters": 2, "random_state": 42})
+        detector = KMeansDetector("kmeans", {"n_clusters": 3, "random_state": 42, "distance_percentile": 90})
         detector.fit(X)
         assert detector.labels_ is not None
         assert len(detector.labels_) == len(X)
 
-    def test_majority_is_normal(self):
-        """El cluster mayoritario debe ser normal (label=0)."""
+    def test_distance_scoring_labels(self):
+        """Los mas lejanos al centroide deben ser anomalos (no toda la mitad)."""
         X, _ = _make_synthetic_data(n_normal=200, n_outliers=20)
-        detector = KMeansDetector("kmeans", {"n_clusters": 2, "random_state": 42})
+        detector = KMeansDetector("kmeans", {"n_clusters": 3, "random_state": 42, "distance_percentile": 90})
         detector.fit(X)
-        # La mayoria debe ser normal
-        assert np.sum(detector.anomaly_labels_ == 0) > np.sum(detector.anomaly_labels_ == 1)
+        n_anomalies = int(np.sum(detector.anomaly_labels_ == 1))
+        # Con 10% de outliers y distance_percentile=90, debe marcar ~10%
+        assert n_anomalies >= 15
+        assert n_anomalies <= 35
 
     def test_predict_anomalies(self):
         X, _ = _make_synthetic_data()
-        detector = KMeansDetector("kmeans", {"n_clusters": 2, "random_state": 42})
+        detector = KMeansDetector("kmeans", {"n_clusters": 3, "random_state": 42, "distance_percentile": 90})
         detector.fit(X)
         preds = detector.predict_anomalies(X)
         assert preds.shape == (len(X),)
         assert set(preds).issubset({0, 1})
 
+    def test_score_anomalies_returns_distances(self):
+        X, _ = _make_synthetic_data()
+        detector = KMeansDetector("kmeans", {"n_clusters": 3, "random_state": 42, "distance_percentile": 90})
+        detector.fit(X)
+        scores = detector.score_anomalies(X)
+        assert scores.shape == (len(X),)
+        assert np.all(scores >= 0)
+        # Los outliers sinteticos deben tener mayor score
+        assert np.mean(scores[-20:]) > np.mean(scores[:200])
+
     def test_predict_uses_train_data(self):
         """Debe guardar datos de entrenamiento para predict."""
         X, _ = _make_synthetic_data()
-        detector = KMeansDetector("kmeans", {"n_clusters": 2, "random_state": 42})
+        detector = KMeansDetector("kmeans", {"n_clusters": 3, "random_state": 42, "distance_percentile": 90})
         detector.fit(X)
         assert hasattr(detector, "_train_data")
         assert np.array_equal(detector._train_data, X)
@@ -66,7 +78,7 @@ class TestDBSCANDetector:
     def test_auto_eps(self):
         """eps='auto' debe calcular un valor automaticamente."""
         X, _ = _make_synthetic_data()
-        detector = DBSCANDetector("dbscan", {"eps": "auto", "min_samples": 5})
+        detector = DBSCANDetector("dbscan", {"eps": "auto", "min_samples": 5, "eps_percentile": 75})
         detector.fit(X)
         assert detector.model.eps != "auto"
         assert isinstance(detector.model.eps, float)
@@ -74,12 +86,20 @@ class TestDBSCANDetector:
     def test_noise_as_anomaly(self):
         """Puntos de ruido deben marcarse como anomalias."""
         X, _ = _make_synthetic_data()
-        detector = DBSCANDetector("dbscan", {"eps": 1.0, "min_samples": 5})
+        detector = DBSCANDetector("dbscan", {"eps": 1.0, "min_samples": 5, "eps_percentile": 75})
         detector.fit(X)
         # Verificar consistencia
         noise_mask = detector.labels_ == -1
         assert np.all(detector.anomaly_labels_[noise_mask] == 1)
         assert np.all(detector.anomaly_labels_[~noise_mask] == 0)
+
+    def test_score_anomalies(self):
+        X, _ = _make_synthetic_data()
+        detector = DBSCANDetector("dbscan", {"eps": 1.0, "min_samples": 5, "eps_percentile": 75})
+        detector.fit(X)
+        scores = detector.score_anomalies(X)
+        assert scores.shape == (len(X),)
+        assert np.all(scores >= 0)
 
 
 class TestHDBSCANDetector:
@@ -118,6 +138,14 @@ class TestHDBSCANDetector:
         assert set(preds).issubset({0, 1})
         n_anomalies = np.sum(preds == 1)
         assert n_anomalies >= 0
+
+    def test_score_anomalies(self):
+        X, _ = _make_synthetic_data()
+        detector = HDBSCANDetector("hdbscan", {"min_cluster_size": 10})
+        detector.fit(X)
+        scores = detector.score_anomalies(X)
+        assert scores.shape == (len(X),)
+        assert np.all(scores >= 0)
 
 
 class TestDetectorFactory:

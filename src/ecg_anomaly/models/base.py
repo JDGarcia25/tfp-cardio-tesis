@@ -50,6 +50,20 @@ class BaseAnomalyDetector(ABC):
             Array binario [N] (0=normal, 1=anomalia).
         """
 
+    def score_anomalies(self, X: np.ndarray) -> np.ndarray:
+        """Computa un score de anormalidad para cada muestra.
+
+        Mayor score = mas anomalo. Por defecto retorna la prediccion binaria.
+        Cada subclase puede sobreescribir para retornar scores continuos.
+
+        Args:
+            X: Matriz de features [N, D].
+
+        Returns:
+            Array [N] con scores continuos (mayor = mas anomalo).
+        """
+        return self.predict_anomalies(X).astype(float)
+
     @abstractmethod
     def get_params(self) -> Dict:
         """Retorna los parametros del modelo."""

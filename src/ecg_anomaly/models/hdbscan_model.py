@@ -32,7 +32,11 @@ class HDBSCANDetector(BaseAnomalyDetector):
             from hdbscan import HDBSCAN
 
         self._train_data = X
-        self.model = HDBSCAN(**self.params, copy=True)
+        # Extraer solo params de HDBSCAN (filtrar custom params si los hay)
+        hdbscan_kwargs = {k: v for k, v in self.params.items()
+                          if k in ("min_cluster_size", "min_samples",
+                                   "cluster_selection_epsilon", "alpha")}
+        self.model = HDBSCAN(**hdbscan_kwargs, copy=True)
         self.labels_ = self.model.fit_predict(X)
         self.anomaly_labels_ = np.where(self.labels_ == -1, 1, 0)
 
@@ -63,6 +67,18 @@ class HDBSCANDetector(BaseAnomalyDetector):
             distances, _ = neigh.kneighbors(X)
             threshold = np.percentile(distances, 95)
             return np.where(distances.ravel() > threshold, 1, 0)
+
+    def score_anomalies(self, X: np.ndarray) -> np.ndarray:
+        """Outlier score via distancia al core data (mayor = mas anomalo)."""
+        core_mask = self.labels_ >= 0
+        core_data = self._train_data[core_mask]
+        if len(core_data) == 0:
+            return np.full(len(X), np.inf)
+        from sklearn.neighbors import NearestNeighbors
+        neigh = NearestNeighbors(n_neighbors=1)
+        neigh.fit(core_data)
+        distances, _ = neigh.kneighbors(X)
+        return distances.ravel()
 
     def get_params(self) -> Dict:
         n_clusters = len(set(self.labels_)) - (1 if -1 in self.labels_ else 0)

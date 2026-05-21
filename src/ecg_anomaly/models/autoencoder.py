@@ -3,8 +3,8 @@
 El autoencoder aprende a reconstruir latidos normales. Los latidos con
 alto error de reconstruccion se clasifican como anomalias.
 
-Regla de anomalia: error de reconstruccion > percentil configurado
-(default: percentil 95).
+Regla de anomalia: error de reconstruccion > percentil dinamico calculado
+a partir de anomaly_rate (default: 0.105 = 10.5% mas anomalo).
 """
 
 import logging
@@ -67,9 +67,10 @@ class AutoencoderDetector(BaseAnomalyDetector):
         reconstructed = model.predict(X, verbose=0)
         self.reconstruction_errors_ = np.mean((X - reconstructed) ** 2, axis=1)
 
-        # Umbral de anomalia
-        percentile = self.params.get("anomaly_percentile", 95)
-        self.threshold_ = float(np.percentile(self.reconstruction_errors_, percentile))
+        # Umbral dinamico basado en tasa de anomalia real
+        anomaly_rate = self.params.get("anomaly_rate", 0.105)
+        threshold_percentile = (1.0 - anomaly_rate) * 100
+        self.threshold_ = float(np.percentile(self.reconstruction_errors_, threshold_percentile))
 
         # Asignar etiquetas
         self.anomaly_labels_ = np.where(
@@ -78,9 +79,10 @@ class AutoencoderDetector(BaseAnomalyDetector):
         self.labels_ = self.anomaly_labels_
 
         logger.info(
-            "Autoencoder: umbral=%.6f (p%d), %d anomalias (%.1f%%)",
+            "Autoencoder: umbral=%.6f (p%.1f, anomaly_rate=%.3f), %d anomalias (%.1f%%)",
             self.threshold_,
-            percentile,
+            threshold_percentile,
+            anomaly_rate,
             int(np.sum(self.anomaly_labels_ == 1)),
             np.mean(self.anomaly_labels_) * 100,
         )
@@ -93,6 +95,13 @@ class AutoencoderDetector(BaseAnomalyDetector):
         reconstructed = self.model.predict(X, verbose=0)
         errors = np.mean((X - reconstructed) ** 2, axis=1)
         return np.where(errors > self.threshold_, 1, 0)
+
+    def score_anomalies(self, X: np.ndarray) -> np.ndarray:
+        """Error de reconstruccion MSE (mayor = mas anomalo)."""
+        if self.model is None:
+            raise RuntimeError("Debe llamar fit() antes de score_anomalies()")
+        reconstructed = self.model.predict(X, verbose=0)
+        return np.mean((X - reconstructed) ** 2, axis=1)
 
     def get_params(self) -> Dict:
         return {

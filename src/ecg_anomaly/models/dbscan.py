@@ -26,9 +26,10 @@ class DBSCANDetector(BaseAnomalyDetector):
     def fit(self, X: np.ndarray) -> "DBSCANDetector":
         params = {**self.params}
 
+        eps_percentile = params.pop("eps_percentile", 75)
         if params.get("eps") == "auto":
-            params["eps"] = self._optimize_eps(X, params.get("min_samples", 5))
-            logger.info("DBSCAN eps auto-optimizado: %.4f", params["eps"])
+            params["eps"] = self._optimize_eps(X, params.get("min_samples", 5), eps_percentile)
+            logger.info("DBSCAN eps auto-optimizado (p%d): %.4f", eps_percentile, params["eps"])
 
         self.model = DBSCAN(**params)
         self.labels_ = self.model.fit_predict(X)
@@ -36,14 +37,22 @@ class DBSCANDetector(BaseAnomalyDetector):
         return self
 
     def predict_anomalies(self, X: np.ndarray) -> np.ndarray:
-        # DBSCAN no tiene predict nativo; usar distancia a core samples
-        core_mask = np.zeros(len(self.model.components_), dtype=bool)
-        core_mask[:] = True
+        if len(self.model.components_) == 0:
+            return np.ones(len(X), dtype=int)
         neigh = NearestNeighbors(n_neighbors=1)
         neigh.fit(self.model.components_)
         distances, _ = neigh.kneighbors(X)
         eps = self.model.eps
         return np.where(distances.ravel() > eps, 1, 0)
+
+    def score_anomalies(self, X: np.ndarray) -> np.ndarray:
+        """Distancia al core sample mas cercano (mayor = mas anomalo)."""
+        if len(self.model.components_) == 0:
+            return np.full(len(X), np.inf)
+        neigh = NearestNeighbors(n_neighbors=1)
+        neigh.fit(self.model.components_)
+        distances, _ = neigh.kneighbors(X)
+        return distances.ravel()
 
     def get_params(self) -> Dict:
         n_clusters = len(set(self.labels_)) - (1 if -1 in self.labels_ else 0)
@@ -56,10 +65,10 @@ class DBSCANDetector(BaseAnomalyDetector):
         }
 
     @staticmethod
-    def _optimize_eps(X: np.ndarray, min_samples: int) -> float:
-        """Auto-optimiza epsilon usando el percentil 90 de k-distancias."""
+    def _optimize_eps(X: np.ndarray, min_samples: int, percentile: int = 75) -> float:
+        """Auto-optimiza epsilon usando el percentil configurable de k-distancias."""
         neigh = NearestNeighbors(n_neighbors=min_samples)
         neigh.fit(X)
         distances, _ = neigh.kneighbors(X)
         k_distances = np.sort(distances[:, -1])
-        return float(np.percentile(k_distances, 90))
+        return float(np.percentile(k_distances, percentile))

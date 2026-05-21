@@ -92,6 +92,14 @@ class PreprocessingPipeline:
                 int(np.sum(labels == 1)),
             )
 
+        if len(all_segments) == 0:
+            logger.error(
+                "No se encontraron segmentos validos en ningun registro. Verifique el dataset y los parametros de segmentacion"
+            )
+            raise ValueError(
+                "No se encontraron segmentos tras la segmentacion. Compruebe `dataset.records`, las anotaciones R y los parametros `before_r_samples`/`after_r_samples`."
+            )
+
         segments = np.vstack(all_segments)
         labels = np.concatenate(all_labels)
         r_peaks = np.concatenate(all_r_peaks)
