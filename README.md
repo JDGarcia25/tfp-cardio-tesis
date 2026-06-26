@@ -175,6 +175,36 @@ El proyecto sigue **Design Science Research Methodology (DSRM)** (Peffers et al.
 
 ---
 
+## Interpretacion Clinica de Resultados
+
+### Niveles de Alerta Clinica
+
+El frontend incluye un sistema de **semáforo clínico** que clasifica cada latido en cuatro niveles de alerta:
+
+| Nivel | Color | Criterio | Accion Recomendada |
+|-------|-------|----------|--------------------|
+| **Normal** | 🟢 Verde | Sin anomalia detectada | Continuar monitoreo |
+| **Alerta Leve** | 🟡 Amarillo | Error de reconstruccion > umbral (ratio < 2×) | Revisar en siguiente ciclo |
+| **Alerta Moderada** | 🟠 Naranja | Error de reconstruccion 2-3× el umbral | Evaluacion prioritaria |
+| **Critico** | 🔴 Rojo | Error de reconstruccion > 3× el umbral | Intervencion inmediata |
+
+Los umbrales de alerta se basan en el **ratio error/umbral** del autoencoder. En modo CSV, el nivel de alerta global depende del porcentaje de anomalias detectadas en el registro completo.
+
+### Metricas Clave para Diagnostico
+
+- **Sensibilidad (Recall):** La metrica mas importante en contexto clinico. Un falso negativo (anomalia no detectada) puede tener consecuencias graves. El modelo con mayor sensibilidad debe preferirse para screening.
+- **Especificidad:** Relevante para evitar falsas alarmas que saturan al personal medico.
+- **F1 Score:** Balance entre precision y sensibilidad. Util como metrica unificada de comparacion.
+- **Multi-Criteria Ranking:** Combina todas las metricas en un puntaje compuesto para seleccion objetiva del mejor modelo.
+
+### Limitaciones
+
+- Los 4 metodos son **no supervisados**: no requieren etiquetas para entrenar, pero la asignacion de clases normal/anomalo es **heuristica**.
+- La validacion clinica requiere un estudio con especialistas y datos prospectivos.
+- El dataset MIT-BIH esta desbalanceado (~10% anomalias), lo que favorece clasificadores que predicen "normal" siempre.
+
+---
+
 ## Tests
 
 ```bash

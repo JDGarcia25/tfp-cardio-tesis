@@ -12,9 +12,8 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_DIR = "./models"
 
-# Tolerancias para la heuristica de deteccion Z-score
-_ZSCORE_MEAN_TOL = 1.0   # |media| debe ser menor que esto
-_ZSCORE_STD_MIN = 0.2    # std debe estar dentro de este rango
+_ZSCORE_MEAN_TOL = 1.0
+_ZSCORE_STD_MIN = 0.2
 _ZSCORE_STD_MAX = 2.0
 
 
@@ -32,11 +31,6 @@ class ModelPredictor:
     - ``None`` (default): se llama a ``is_zscore_normalized()`` para decidir.
     - ``True``: se asume que el beat ya esta normalizado; no se modifica.
     - ``False``: se aplica Z-score sin importar el contenido del beat.
-
-    Flujo de inferencia (tras la normalizacion opcional):
-        1. StandardScaler.transform() — escala segun la distribucion del dataset.
-        2. PCA.transform()            — solo para modelos de clustering.
-        3. Prediccion del modelo      — MSE vs umbral (autoencoder) o cluster (clustering).
     """
 
     def __init__(self, model_dir: str = DEFAULT_MODEL_DIR):
@@ -49,6 +43,7 @@ class ModelPredictor:
         self._model_name: str = "unknown"
         self._model_type: str = "unknown"
         self._representation: str = "signal_pca"
+        self._available_models: List[str] = []
         self._load()
 
     # ------------------------------------------------------------------
@@ -70,8 +65,9 @@ class ModelPredictor:
         self._model_name = meta["model_name"]
         self._model_type = meta["model_type"]
         self._representation = meta.get("representation", "signal_pca")
+        self._available_models = meta.get("available_models", [])
 
-        import joblib  # noqa: PLC0415
+        import joblib
 
         model_path = self.model_dir / self._model_name
 
@@ -83,16 +79,16 @@ class ModelPredictor:
 
         if self._model_type == "autoencoder":
             os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-            import tensorflow as tf  # noqa: PLC0415
+            import tensorflow as tf
 
-            self._keras_model = tf.keras.models.load_model(str(model_path / "model.h5"), compile=False)
+            self._keras_model = tf.keras.models.load_model(
+                str(model_path / "model.h5"), compile=False
+            )
             with open(model_path / "config.json") as f:
                 cfg = json.load(f)
             self._threshold = cfg["threshold"]
         else:
             self._detector = joblib.load(model_path / "detector.joblib")
-            with open(model_path / "config.json") as f:
-                json.load(f)  # reservado para parametros futuros
 
         logger.info(
             "Modelo '%s' (tipo: %s) cargado desde '%s'",
@@ -106,11 +102,7 @@ class ModelPredictor:
     # ------------------------------------------------------------------
 
     def use_model(self, name: str) -> None:
-        """Cambia el modelo activo cargando ./models/<name>/.
-
-        Args:
-            name: Nombre del subdirectorio del modelo (ej: 'dbscan', 'kmeans').
-        """
+        """Cambia el modelo activo cargando ./models/<name>/."""
         model_path = self.model_dir / name
         if not model_path.exists():
             logger.warning("Modelo '%s' no encontrado en %s", name, model_path)
@@ -123,7 +115,7 @@ class ModelPredictor:
 
     def _load_specific(self, name: str, model_path: Path) -> None:
         """Carga un modelo especifico desde model_path, sin usar best_model.json."""
-        import joblib  # noqa: PLC0415
+        import joblib
 
         self._model_name = name
 
@@ -141,7 +133,7 @@ class ModelPredictor:
         if keras_path.exists():
             self._model_type = "autoencoder"
             os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
-            import tensorflow as tf  # noqa: PLC0415
+            import tensorflow as tf
             self._keras_model = tf.keras.models.load_model(str(keras_path), compile=False)
             if config_path.exists():
                 with open(config_path) as f:
@@ -151,10 +143,8 @@ class ModelPredictor:
         elif detector_path.exists():
             self._model_type = name
             self._keras_model = None
+            self._threshold = None
             self._detector = joblib.load(detector_path)
-            if config_path.exists():
-                with open(config_path) as f:
-                    json.load(f)
 
     # ------------------------------------------------------------------
     # Propiedades publicas
@@ -162,13 +152,27 @@ class ModelPredictor:
 
     @property
     def model_name(self) -> str:
-        """Nombre del modelo cargado."""
         return self._model_name
 
     @property
     def model_type(self) -> str:
-        """Tipo del modelo: 'autoencoder' o 'clustering'."""
         return self._model_type
+
+    @property
+    def representation(self) -> str:
+        return self._representation
+
+    @property
+    def threshold(self) -> Optional[float]:
+        return self._threshold
+
+    @property
+    def available_models(self) -> List[str]:
+        return self._available_models
+
+    @property
+    def has_pca(self) -> bool:
+        return self._pca is not None
 
     # ------------------------------------------------------------------
     # Deteccion y normalizacion del beat
@@ -176,36 +180,14 @@ class ModelPredictor:
 
     @staticmethod
     def is_zscore_normalized(beat: np.ndarray) -> bool:
-        """Heuristica estadistica: determina si un latido ya tiene Z-score aplicado.
-
-        Un latido normalizado por Z-score tiene:
-        - Media aproximadamente 0  (|media| < 1.0)
-        - Desviacion estandar entre 0.2 y 2.0
-
-        Args:
-            beat: Array 1-D con las 200 muestras del latido.
-
-        Returns:
-            True si el beat parece estar normalizado; False en caso contrario.
-        """
+        """Heuristica estadistica: determina si un latido ya tiene Z-score aplicado."""
         mean = float(np.mean(beat))
         std = float(np.std(beat))
         return abs(mean) < _ZSCORE_MEAN_TOL and _ZSCORE_STD_MIN < std < _ZSCORE_STD_MAX
 
     @staticmethod
     def apply_zscore(beat: np.ndarray) -> np.ndarray:
-        """Aplica normalizacion Z-score a un latido individual.
-
-        Resta la media y divide por la desviacion estandar. Si la desviacion
-        es casi cero (latido plano), solo resta la media para evitar division
-        por cero.
-
-        Args:
-            beat: Array 1-D de N muestras.
-
-        Returns:
-            Array normalizado de la misma forma.
-        """
+        """Aplica normalizacion Z-score a un latido individual."""
         mean = float(np.mean(beat))
         std = float(np.std(beat))
         if std < 1e-8:
@@ -217,26 +199,11 @@ class ModelPredictor:
     # ------------------------------------------------------------------
 
     def predict(self, beat: List[float], preprocessed: Optional[bool] = None) -> Dict:
-        """Predice si un latido ECG es anomalo.
-
-        Args:
-            beat: Lista de 200 muestras ECG.
-            preprocessed:
-                - ``None`` (default): detecta automaticamente si el beat
-                  ya tiene Z-score por heuristica estadistica.
-                - ``True``: asume que el beat ya esta normalizado.
-                  No se calcula media ni desviacion estandar.
-                - ``False``: aplica Z-score antes de inferencia.
-
-        Returns:
-            Dict con claves:
-                prediction, label, reconstruction_error, threshold,
-                model_name, normalization_applied.
-        """
+        """Predice si un latido ECG es anomalo."""
         X = np.array(beat, dtype=np.float32).reshape(1, -1)
         raw_mean = float(np.mean(X[0]))
         raw_std = float(np.std(X[0]))
-        logger.info(
+        logger.debug(
             "Beat recibido: mean=%.4f, std=%.4f, preprocessed=%s",
             raw_mean, raw_std, preprocessed,
         )
@@ -247,31 +214,19 @@ class ModelPredictor:
 
         if preprocessed is None:
             already_normalized = self.is_zscore_normalized(X[0])
-            source = "auto-detectado"
         else:
             already_normalized = False
-            source = "explicito"
 
         if already_normalized:
             X_scaled = self._scaler.transform(X)
             return self._run_model(X_scaled, normalization_applied=False)
 
         X[0] = self.apply_zscore(X[0])
-        logger.info(
-            "Z-score aplicado (%s): mean_original=%.4f, std_original=%.4f, "
-            "mean_final=%.4f, std_final=%.4f",
-            source, raw_mean, raw_std,
-            float(np.mean(X[0])), float(np.std(X[0])),
-        )
         X_scaled = self._scaler.transform(X)
         return self._run_model(X_scaled, normalization_applied=True)
 
     def _run_model(self, X_scaled: np.ndarray, normalization_applied: bool) -> Dict:
-        """Ejecuta la prediccion sobre datos ya escalados.
-
-        Flujo clustering: Scaler -> PCA (opcional) -> detector.predict_anomalies
-        Flujo autoencoder: Scaler -> modelo keras -> MSE vs umbral
-        """
+        """Ejecuta la prediccion sobre datos ya escalados."""
         if self._model_type == "autoencoder":
             reconstructed = self._keras_model.predict(X_scaled, verbose=0)
             error = float(np.mean((X_scaled - reconstructed) ** 2))
@@ -279,8 +234,8 @@ class ModelPredictor:
             return {
                 "prediction": pred,
                 "label": "anomalia" if pred == 1 else "normal",
-                "reconstruction_error": error,
-                "threshold": self._threshold,
+                "reconstruction_error": round(error, 6),
+                "threshold": round(self._threshold, 6),
                 "model_name": self._model_name,
                 "normalization_applied": normalization_applied,
             }
