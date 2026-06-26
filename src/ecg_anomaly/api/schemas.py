@@ -14,11 +14,8 @@ class BeatInput(BaseModel):
     El campo ``preprocessed`` controla si el API aplica normalizacion Z-score:
 
     - ``None`` (default): deteccion automatica por heuristica estadistica.
-      Si ``|media| < 0.5`` y ``0.5 < std < 1.5``, se asume que ya esta
-      normalizado; en caso contrario, el API lo normaliza.
     - ``True``: el beat ya tiene Z-score aplicado; el API no modifica nada.
-    - ``False``: el beat NO esta normalizado; el API aplica Z-score antes
-      de pasarlo al modelo.
+    - ``False``: el beat NO esta normalizado; el API aplica Z-score antes de pasarlo al modelo.
     """
 
     beat: List[float] = Field(
@@ -35,8 +32,8 @@ class BeatInput(BaseModel):
         None,
         description=(
             "Estado de preprocesamiento del beat. "
-            "True → ya normalizado por Z-score, el API no modifica nada. "
-            "False → no normalizado, el API aplica Z-score automaticamente. "
+            "True → ya normalizado por Z-score. "
+            "False → no normalizado, el API aplica Z-score. "
             "None (default) → deteccion automatica por heuristica estadistica."
         ),
     )
@@ -70,10 +67,7 @@ class PredictionOutput(BaseModel):
     )
     normalization_applied: bool = Field(
         ...,
-        description=(
-            "True si el API aplico normalizacion Z-score al beat antes de inferencia. "
-            "False si el beat ya estaba normalizado."
-        ),
+        description="True si el API aplico normalizacion Z-score al beat antes de inferencia.",
     )
 
 
@@ -82,4 +76,18 @@ class HealthOutput(BaseModel):
 
     status: str = Field(..., description="Estado del servicio: 'ok'")
     model_name: str = Field(..., description="Nombre del mejor modelo cargado")
-    model_type: str = Field(..., description="Tipo: 'autoencoder' o 'clustering'")
+    model_type: str = Field(..., description="Tipo: 'autoencoder' o nombre del clustering")
+
+
+class ModelInfoOutput(BaseModel):
+    """Informacion detallada del modelo activo."""
+
+    model_name: str = Field(..., description="Nombre del modelo activo")
+    model_type: str = Field(..., description="Tipo de modelo: autoencoder o clustering")
+    representation: str = Field(..., description="Representacion de features usada")
+    threshold: Optional[float] = Field(None, description="Umbral de decision (solo autoencoder)")
+    available_models: List[str] = Field(default_factory=list, description="Modelos disponibles en disco")
+    has_pca: bool = Field(..., description="True si el modelo usa reduccion PCA")
+    beat_length: int = Field(default=200, description="Longitud esperada del vector beat")
+    sampling_rate: int = Field(default=360, description="Frecuencia de muestreo en Hz")
+    dataset: str = Field(default="MIT-BIH Arrhythmia Database", description="Dataset de entrenamiento")

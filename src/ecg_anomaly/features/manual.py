@@ -25,14 +25,26 @@ FEATURE_NAMES: List[str] = [
     "rr_post",
     "rr_ratio_pre_post",
     "rr_dev",
+    # ==== Ventana temporal (Fase 2) — indices 16-21 ====
+    "rr_mean_5",
+    "rr_std_5",
+    "rr_mean_10",
+    "rr_std_10",
+    "rmssd_5",
+    "pnn_5",
 ]
+
+# ==== Constantes de dimensiones (Fase 2) ====
+N_MANUAL_FEATURES_BASE = 16
+N_MANUAL_FEATURES_WINDOW = 6
+N_MANUAL_FEATURES_TOTAL = N_MANUAL_FEATURES_BASE + N_MANUAL_FEATURES_WINDOW
 
 
 class ManualFeatureExtractor:
-    """Extractor Path B: caracteristicas manuales (~12 features).
+    """Extractor Path B: caracteristicas manuales (~22 features).
 
     Extrae features morfologicas, temporales (intervalos RR),
-    estadisticas y de frecuencia de cada latido segmentado.
+    estadisticas, frecuencia y ventanas deslizantes de cada latido segmentado.
     """
 
     def __init__(self):
@@ -55,7 +67,7 @@ class ManualFeatureExtractor:
             record_indices: Array [N] indicando el registro de cada latido.
 
         Returns:
-            Array [N, 12] con features escaladas (StandardScaler).
+            Array [N, 22] con features escaladas (StandardScaler).
         """
         features = self._extract_raw(segments, r_peak_positions, fs, record_indices)
         scaled = self.scaler.fit_transform(features)
@@ -79,7 +91,7 @@ class ManualFeatureExtractor:
         valid_rr = rr_intervals[rr_intervals > 0]
         mean_rr = np.mean(valid_rr) if len(valid_rr) > 0 else 800.0
 
-        features = np.zeros((n_beats, len(FEATURE_NAMES)))
+        features = np.zeros((n_beats, N_MANUAL_FEATURES_TOTAL))
 
         for i, seg in enumerate(segments):
             r_idx = before_r
@@ -127,6 +139,10 @@ class ManualFeatureExtractor:
 
             features[i, 15] = abs(rr_val - mean_rr) / mean_rr if mean_rr > 0 else 0.0
 
+        # ==== Ventana temporal (Fase 2) — indices 16-21 ====
+        window_feat = self._extract_window_features(rr_intervals, n_beats, record_indices)
+        features[:, 16:22] = window_feat
+
         return features
 
     @staticmethod
@@ -161,6 +177,69 @@ class ManualFeatureExtractor:
             return 0.0
         m4 = np.mean((x - mean) ** 4)
         return m4 / (std ** 4) - 3.0
+
+    # ==== Inicio: Ventana temporal (Fase 2) ====
+    @staticmethod
+    def _extract_window_features(
+        rr_intervals: np.ndarray,
+        n_beats: int,
+        record_indices: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """Features de ventana deslizante sobre intervalos RR.
+
+        Agregado en Fase 2 del plan de mejoras.
+        Ventanas de 5 y 10 latidos para detectar patrones
+        de arritmias (bigeminia, taquicardia ventricular, FA).
+
+        Cada ventana solo incluye latidos del MISMO registro
+        para evitar contaminacion entre registros distintos.
+        Si la ventana tiene < 2 beats, las features quedan en 0.
+        """
+        window_features = np.zeros((n_beats, N_MANUAL_FEATURES_WINDOW))
+
+        for i in range(n_beats):
+            # Limitar ventana al mismo registro para evitar contaminacion
+            if record_indices is not None:
+                rec = record_indices[i]
+                idx_5 = [
+                    j
+                    for j in range(max(0, i - 4), i + 1)
+                    if record_indices[j] == rec
+                ]
+                idx_10 = [
+                    j
+                    for j in range(max(0, i - 9), i + 1)
+                    if record_indices[j] == rec
+                ]
+            else:
+                idx_5 = list(range(max(0, i - 4), i + 1))
+                idx_10 = list(range(max(0, i - 9), i + 1))
+
+            window_5 = rr_intervals[idx_5]
+            window_10 = rr_intervals[idx_10]
+
+            if len(window_5) >= 2:
+                window_features[i, 0] = np.mean(window_5)
+                window_features[i, 1] = np.std(window_5)
+
+            if len(window_10) >= 2:
+                window_features[i, 2] = np.mean(window_10)
+                window_features[i, 3] = np.std(window_10)
+
+            if len(window_5) >= 2:
+                diffs = np.diff(window_5)
+                window_features[i, 4] = np.sqrt(np.mean(diffs**2))
+
+            if len(window_5) >= 2:
+                mean_local = np.mean(window_5[:-1])
+                if mean_local > 0:
+                    abnormal = np.sum(
+                        np.abs(window_5[:-1] - mean_local) > 0.2 * mean_local
+                    )
+                    window_features[i, 5] = abnormal / len(window_5[:-1])
+
+        return window_features
+    # ==== Fin: Ventana temporal (Fase 2) ====
 
     @staticmethod
     def _compute_rr_intervals(

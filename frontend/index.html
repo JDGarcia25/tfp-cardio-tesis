@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CardioAI — Detección de Anomalías ECG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- ══════════════════════════════════════════════════════
+       HEADER
+  ══════════════════════════════════════════════════════════ -->
+  <header class="header">
+    <div class="header__ecg-bg" aria-hidden="true">
+      <svg viewBox="0 0 1200 60" preserveAspectRatio="none" class="header__ecg-svg">
+        <polyline class="ecg-line"
+          points="0,30 80,30 100,30 110,10 120,50 130,5 145,55 158,30 180,30
+                  260,30 280,30 290,10 300,50 310,5 325,55 338,30 360,30
+                  440,30 460,30 470,10 480,50 490,5 505,55 518,30 540,30
+                  620,30 640,30 650,10 660,50 670,5 685,55 698,30 720,30
+                  800,30 820,30 830,10 840,50 850,5 865,55 878,30 900,30
+                  980,30 1000,30 1010,10 1020,50 1030,5 1045,55 1058,30 1200,30"/>
+      </svg>
+    </div>
+    <div class="header__inner container">
+      <div class="header__brand">
+        <div class="header__logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"
+                  fill="rgba(255,255,255,0.9)" stroke="none"/>
+          </svg>
+        </div>
+        <div class="header__text">
+          <span class="header__title">CardioAI</span>
+          <span class="header__subtitle">Sistema de Detección de Anomalías ECG · CESMAG 2026</span>
+        </div>
+      </div>
+      <div class="header__right">
+        <div class="status-pill" id="statusPill">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-label" id="statusLabel">Conectando...</span>
+        </div>
+        <a href="http://localhost:8000/docs" target="_blank" class="header__docs-btn">
+          API Docs
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════
+       HERO
+  ══════════════════════════════════════════════════════════ -->
+  <section class="hero">
+    <div class="hero__content container">
+      <div class="hero__left">
+        <div class="hero__label">Deep Learning · MIT-BIH Arrhythmia Database</div>
+        <h2 class="hero__title">Análisis Cardíaco<br>en Tiempo Real</h2>
+        <p class="hero__desc">
+          Detección de arritmias mediante Autoencoder neuronal entrenado
+          sobre más de 100,000 latidos cardíacos.
+        </p>
+        <div class="hero__badges" id="modelBadges">
+          <span class="hero-badge hero-badge--red" id="badgeModel">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            Cargando...
+          </span>
+          <span class="hero-badge hero-badge--blue" id="badgeType">–</span>
+          <span class="hero-badge hero-badge--green" id="badgeThreshold">–</span>
+        </div>
+      </div>
+      <div class="hero__right" aria-hidden="true">
+        <div class="heart-monitor">
+          <canvas id="heroCanvas" class="heart-monitor__canvas"></canvas>
+          <div class="heart-monitor__overlay">
+            <div class="heart-monitor__bpm">
+              <span class="heart-monitor__bpm-num" id="heroBpm">72</span>
+              <span class="heart-monitor__bpm-lbl">BPM</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════
+       STATS BAR
+  ══════════════════════════════════════════════════════════ -->
+  <div class="stats-bar">
+    <div class="container stats-bar__inner">
+      <div class="stat-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span>Latencia: <strong>&lt; 100ms</strong></span>
+      </div>
+      <div class="stat-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        <span>Señal: <strong>200 muestras @ 360 Hz</strong></span>
+      </div>
+      <div class="stat-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span>Modelos: <strong>4 algoritmos disponibles</strong></span>
+      </div>
+      <div class="stat-item">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
+        <span>F1-Score: <strong>0.349 (Autoencoder)</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════
+       MAIN
+  ══════════════════════════════════════════════════════════ -->
+  <main class="main container">
+
+    <!-- ── PANEL GRID ──────────────────────────────────────────────────────── -->
+    <div class="panel-grid">
+
+      <!-- ╔══════════════════════════════════╗
+           ║  PANEL 1 — Predicción manual    ║
+           ╚══════════════════════════════════╝ -->
+      <section class="card" id="panelManual">
+
+        <div class="card__head card__head--blue">
+          <div class="card__head-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="card__head-title">Análisis de Latido</h2>
+            <p class="card__head-sub">Predicción por beat individual</p>
+          </div>
+        </div>
+
+        <div class="card__body">
+
+          <div class="field">
+            <label class="field__label" for="beatInput">
+              Vector ECG
+              <span class="field__badge">200 valores float</span>
+            </label>
+            <textarea id="beatInput" class="field__textarea" rows="4"
+              placeholder='[0.12, -0.45, 0.87, 1.23, -0.31, ...]'
+              spellcheck="false"></textarea>
+            <div class="field__footer">
+              <span class="field__hint" id="beatCountHint">0 / 200 valores</span>
+              <button class="field__sample-btn" id="btnSample" type="button">
+                Cargar ejemplo
+              </button>
+            </div>
+          </div>
+
+          <div class="field-row">
+            <div class="field field--half">
+              <label class="field__label" for="modelSelectManual">Modelo</label>
+              <select class="field__select" id="modelSelectManual">
+                <option value="">— Mejor modelo —</option>
+                <option value="autoencoder">Autoencoder (F1 0.349)</option>
+                <option value="kmeans">KMeans (F1 0.337)</option>
+                <option value="dbscan">DBSCAN (F1 0.293)</option>
+                <option value="hdbscan">HDBSCAN (F1 0.259)</option>
+              </select>
+            </div>
+            <div class="field field--half">
+              <label class="field__label">Normalización</label>
+              <div class="seg-control">
+                <label class="seg-control__opt">
+                  <input type="radio" name="preprocessed" value="null" checked />
+                  <span>Auto</span>
+                </label>
+                <label class="seg-control__opt">
+                  <input type="radio" name="preprocessed" value="true" />
+                  <span>Z-Score</span>
+                </label>
+                <label class="seg-control__opt">
+                  <input type="radio" name="preprocessed" value="false" />
+                  <span>Crudo</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <button class="analyze-btn" id="btnPredict" type="button" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+            Analizar ECG
+          </button>
+
+          <div class="loading-bar" id="spinnerManual">
+            <div class="loading-bar__track">
+              <div class="loading-bar__fill"></div>
+            </div>
+            <span class="loading-bar__label">Procesando señal ECG...</span>
+          </div>
+
+          <!-- Resultado manual -->
+          <div id="resultManual" aria-live="polite"></div>
+
+        </div>
+      </section>
+
+      <!-- ╔══════════════════════════════════╗
+           ║  PANEL 2 — Análisis CSV         ║
+           ╚══════════════════════════════════╝ -->
+      <section class="card" id="panelCsv">
+
+        <div class="card__head card__head--red">
+          <div class="card__head-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+            </svg>
+          </div>
+          <div>
+            <h2 class="card__head-title">Análisis de Registro</h2>
+            <p class="card__head-sub">
+              <span class="endpoint-badge endpoint-badge--post">POST</span>
+              <span class="endpoint-badge endpoint-badge--route">/predict-csv</span>
+              <span class="card__head-sub-divider">·</span>
+              Señal ECG completa desde CSV
+            </p>
+          </div>
+        </div>
+
+        <div class="card__body">
+
+          <div class="dropzone" id="dropzone" role="button" tabindex="0"
+               aria-label="Cargar archivo CSV">
+            <input type="file" id="csvFileInput" accept=".csv" hidden />
+            <div class="dropzone__body">
+              <div class="dropzone__icon-wrap">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.8">
+                  <polyline points="16 16 12 12 8 16"/>
+                  <line x1="12" y1="12" x2="12" y2="21"/>
+                  <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+                </svg>
+              </div>
+              <p class="dropzone__title">Arrastra tu archivo CSV</p>
+              <p class="dropzone__hint" id="dropzoneHint">
+                o <span class="link">busca en tu dispositivo</span> · 360 Hz
+              </p>
+            </div>
+          </div>
+
+          <div class="field-row" style="margin-top:16px;">
+            <div class="field field--half">
+              <label class="field__label" for="modelSelect">Modelo</label>
+              <select class="field__select" id="modelSelect">
+                <option value="">— Mejor modelo —</option>
+                <option value="autoencoder">Autoencoder (F1 0.349)</option>
+                <option value="kmeans">KMeans (F1 0.337)</option>
+                <option value="dbscan">DBSCAN (F1 0.293)</option>
+                <option value="hdbscan">HDBSCAN (F1 0.259)</option>
+              </select>
+            </div>
+            <div class="field field--half">
+              <label class="field__label">Umbral de detección</label>
+              <label class="toggle-field">
+                <input type="checkbox" id="adaptiveThreshold" checked />
+                <span class="toggle-slider"></span>
+                <span class="toggle-label" id="adaptiveLabel">Adaptativo (p85)</span>
+              </label>
+              <p class="field__hint" style="margin-top:6px;" id="adaptiveHint">
+                Umbral calculado desde el propio registro
+              </p>
+            </div>
+          </div>
+
+          <div class="field-row" id="sensitivityRow" style="display:none;">
+            <div class="field">
+              <label class="field__label" for="sensitivityRange">
+                Sensibilidad (umbral fijo)
+                <span class="sensitivity-chip" id="sensitivityValue">1.0×</span>
+              </label>
+              <input type="range" id="sensitivityRange" class="field__range"
+                     min="0.5" max="4.0" step="0.5" value="1.0" />
+              <p class="field__hint">Mayor valor = detecta más anomalías</p>
+            </div>
+          </div>
+
+          <button class="analyze-btn analyze-btn--red" id="btnCsvUpload" type="button" disabled>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
+              <polyline points="17 6 23 6 23 12"/>
+            </svg>
+            Analizar Señal Completa
+          </button>
+
+          <div class="loading-bar" id="spinnerCsv">
+            <div class="loading-bar__track">
+              <div class="loading-bar__fill loading-bar__fill--red"></div>
+            </div>
+            <span class="loading-bar__label">Procesando registro ECG...</span>
+          </div>
+
+          <div id="resultCsvSummary" aria-live="polite"></div>
+          <div id="resultMseStats" style="display:none;" aria-live="polite"></div>
+
+          <div id="resultCsvPlot" style="display:none;">
+            <div class="plot-header">
+              <h3 class="plot-title">Mapa de latidos detectados</h3>
+              <a id="csvPlotDownload" class="download-btn" download="latidos_ecg.png">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Descargar
+              </a>
+            </div>
+            <img id="csvPlotImg" alt="Latidos ECG detectados" class="plot-img" />
+          </div>
+
+        </div>
+      </section>
+
+    </div><!-- /.panel-grid -->
+
+    <!-- ╔══════════════════════════════════════════════════╗
+         ║  PANEL INFERIOR — Visualizador ECG             ║
+         ╚══════════════════════════════════════════════════╝ -->
+    <section class="card card--full monitor-card" id="panelViz">
+      <div class="monitor-card__header">
+        <div class="monitor-card__left">
+          <div class="monitor-dot monitor-dot--green"></div>
+          <span class="monitor-card__title">Monitor ECG</span>
+          <span class="monitor-card__sub">Visualización en tiempo real</span>
+        </div>
+        <div class="monitor-card__controls">
+          <button class="monitor-btn monitor-btn--green" id="btnGenNormal" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            Ritmo Normal
+          </button>
+          <button class="monitor-btn monitor-btn--red" id="btnGenAnomaly" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Fibrilación
+          </button>
+          <button class="monitor-btn monitor-btn--blue" id="btnSendToAnalyze" type="button">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            Enviar al análisis
+          </button>
+        </div>
+      </div>
+      <div class="monitor-screen">
+        <canvas id="ecgCanvas" class="ecg-canvas" aria-label="Monitor ECG"></canvas>
+        <div class="monitor-readings">
+          <div class="monitor-reading" id="monitorStatus">
+            <span class="monitor-reading__icon monitor-reading__icon--green">♥</span>
+            <span class="monitor-reading__val" id="monitorLabel">—</span>
+            <span class="monitor-reading__lbl">Estado</span>
+          </div>
+          <div class="monitor-reading">
+            <span class="monitor-reading__icon">∿</span>
+            <span class="monitor-reading__val" id="monitorMse">—</span>
+            <span class="monitor-reading__lbl">Error MSE</span>
+          </div>
+          <div class="monitor-reading">
+            <span class="monitor-reading__icon">⊘</span>
+            <span class="monitor-reading__val" id="monitorThreshold">—</span>
+            <span class="monitor-reading__lbl">Umbral</span>
+          </div>
+          <div class="monitor-reading">
+            <span class="monitor-reading__icon">◉</span>
+            <span class="monitor-reading__val" id="monitorAlert">—</span>
+            <span class="monitor-reading__lbl">Alerta Clínica</span>
+            <div class="traffic-light" id="trafficLight">
+              <span class="traffic-light__lamp" data-level="normal"></span>
+              <span class="traffic-light__lamp" data-level="leve"></span>
+              <span class="traffic-light__lamp" data-level="moderado"></span>
+              <span class="traffic-light__lamp" data-level="critico"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ══════════════════════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════════════════════════ -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer__top">
+        <div class="footer__brand">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="#E53935"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+          <div>
+            <span class="footer__brand-name">CardioAI</span>
+            <span class="footer__brand-sub">Sistema de Detección de Anomalías ECG</span>
+          </div>
+        </div>
+        <div class="footer__cols">
+          <div class="footer__col">
+            <span class="footer__col-title">Endpoints API</span>
+            <ul class="footer__list" id="footerModelInfo">
+              <li><code>GET /health</code></li>
+              <li><code>GET /model-info</code></li>
+              <li><code>POST /predict</code></li>
+              <li><code>POST /predict-csv</code></li>
+            </ul>
+          </div>
+          <div class="footer__col">
+            <span class="footer__col-title">Documentación</span>
+            <ul class="footer__list">
+              <li><a href="http://localhost:8000/docs" target="_blank" class="footer__link">Swagger UI →</a></li>
+              <li><a href="http://localhost:8000/redoc" target="_blank" class="footer__link">ReDoc →</a></li>
+              <li><a href="http://localhost:8000/health" target="_blank" class="footer__link">Health Check →</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="footer__bottom">
+        <span>© 2026 Garcia Alvarez Elian &amp; Garcia Zambrano Juan David</span>
+        <span>Universidad CESMAG · Colombia</span>
+        <span>MIT-BIH Arrhythmia Database</span>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

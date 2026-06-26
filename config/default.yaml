@@ -7,8 +7,8 @@ models:
   - hdbscan
   - autoencoder
 
-# Representacion: "signal_pca" (Path A) o "manual_features" (Path B)
-representation: signal_pca
+# Representacion: "signal_pca" (Path A) o "manual_features" (Path B) con ventanas temporales
+representation: manual_features
 
 # Senal ECG
 sampling_rate: 360
@@ -33,7 +33,7 @@ kmeans_params:
   n_clusters: 10
   random_state: 42
   n_init: 20
-  distance_percentile: 89.5
+  distance_percentile: 85
 
 dbscan_params:
   eps: auto

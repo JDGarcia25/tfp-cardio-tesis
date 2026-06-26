@@ -1,7 +1,7 @@
 """Comparador multi-modelo: ejecuta y evalua todos los detectores."""
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -258,3 +258,85 @@ class ModelComparator:
                     best_idx = i
 
         return self.results[best_idx]["model"]
+
+    def get_multi_criteria_ranking(
+        self, weights: Optional[Dict[str, float]] = None
+    ) -> pd.DataFrame:
+        """Ranking multi-criterio combinando todas las metricas.
+
+        Normaliza cada metrica a [0, 1] (1=mejor) y calcula suma ponderada.
+        Las metricas 'lower-is-better' se invierten antes de normalizar.
+
+        Args:
+            weights: Dict con pesos personalizados. Si es None, usa valores por defecto.
+
+        Returns:
+            DataFrame con puntajes normalizados, composite y ranking.
+        """
+        default_weights = {
+            "extrinsic_f1": 0.25,
+            "extrinsic_sensitivity": 0.20,
+            "extrinsic_specificity": 0.10,
+            "extrinsic_accuracy": 0.10,
+            "extrinsic_auc_roc": 0.10,
+            "intrinsic_silhouette": 0.10,
+            "intrinsic_davies_bouldin": 0.05,
+            "efficiency_time_seconds": 0.05,
+            "efficiency_peak_memory_mb": 0.05,
+        }
+        if weights is not None:
+            default_weights.update(weights)
+
+        lower_is_better = {
+            "intrinsic_davies_bouldin",
+            "efficiency_time_seconds",
+            "efficiency_peak_memory_mb",
+        }
+
+        rows = []
+        for r in self.results:
+            scores = {}
+            weighted_sum = 0.0
+            total_weight = 0.0
+
+            for metric, weight in default_weights.items():
+                val = r.get(metric)
+                if val is None or (isinstance(val, float) and np.isnan(val)):
+                    continue
+
+                all_vals = [
+                    res.get(metric)
+                    for res in self.results
+                ]
+                all_vals = [
+                    v
+                    for v in all_vals
+                    if v is not None
+                    and not (isinstance(v, float) and np.isnan(v))
+                ]
+
+                if not all_vals:
+                    continue
+
+                min_val = min(all_vals)
+                max_val = max(all_vals)
+
+                if max_val == min_val:
+                    normalized = 1.0
+                elif metric in lower_is_better:
+                    normalized = 1.0 - (val - min_val) / (max_val - min_val)
+                else:
+                    normalized = (val - min_val) / (max_val - min_val)
+
+                scores[metric.replace("extrinsic_", "").replace("intrinsic_", "").replace("efficiency_", "")] = round(normalized, 4)
+                weighted_sum += normalized * weight
+                total_weight += weight
+
+            composite = round(weighted_sum / total_weight, 4) if total_weight > 0 else 0
+            rows.append({**scores, "Modelo": r["model"], "Composite": composite})
+
+        df = pd.DataFrame(rows)
+        df = df.sort_values("Composite", ascending=False).reset_index(drop=True)
+        df.index = df.index + 1
+        df.index.name = "Rank"
+        return df
