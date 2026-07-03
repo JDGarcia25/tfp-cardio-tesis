@@ -12,7 +12,6 @@ import os
 from typing import Dict, List
 
 import numpy as np
-from sklearn.decomposition import PCA
 
 from ecg_anomaly.models.base import BaseAnomalyDetector
 
@@ -37,13 +36,8 @@ class AutoencoderDetector(BaseAnomalyDetector):
         self.history_ = None
 
     def fit(self, X: np.ndarray) -> "AutoencoderDetector":
-        try:
-            import tensorflow as tf
-            from tensorflow import keras
-        except ModuleNotFoundError:
-            logger.warning("TensorFlow no disponible; usando fallback basado en PCA")
-            self._fit_fallback_pca(X)
-            return self
+        import tensorflow as tf
+        from tensorflow import keras
 
         # Reproducibilidad
         tf.random.set_seed(42)
@@ -98,12 +92,7 @@ class AutoencoderDetector(BaseAnomalyDetector):
     def predict_anomalies(self, X: np.ndarray) -> np.ndarray:
         if self.model is None or self.threshold_ is None:
             raise RuntimeError("Debe llamar fit() antes de predict_anomalies()")
-        if isinstance(self.model, dict) and self.model.get("type") == "pca_fallback":
-            reconstructed = self.model["pca"].inverse_transform(
-                self.model["pca"].transform(X)
-            )
-        else:
-            reconstructed = self.model.predict(X, verbose=0)
+        reconstructed = self.model.predict(X, verbose=0)
         errors = np.mean((X - reconstructed) ** 2, axis=1)
         return np.where(errors > self.threshold_, 1, 0)
 
@@ -111,12 +100,7 @@ class AutoencoderDetector(BaseAnomalyDetector):
         """Error de reconstruccion MSE (mayor = mas anomalo)."""
         if self.model is None:
             raise RuntimeError("Debe llamar fit() antes de score_anomalies()")
-        if isinstance(self.model, dict) and self.model.get("type") == "pca_fallback":
-            reconstructed = self.model["pca"].inverse_transform(
-                self.model["pca"].transform(X)
-            )
-        else:
-            reconstructed = self.model.predict(X, verbose=0)
+        reconstructed = self.model.predict(X, verbose=0)
         return np.mean((X - reconstructed) ** 2, axis=1)
 
     def get_params(self) -> Dict:
@@ -125,33 +109,6 @@ class AutoencoderDetector(BaseAnomalyDetector):
             "threshold": self.threshold_,
             "n_anomalies": int(np.sum(self.anomaly_labels_)) if self.anomaly_labels_ is not None else 0,
         }
-
-    def _fit_fallback_pca(self, X: np.ndarray) -> None:
-        """Fallback sin TensorFlow usando PCA como aproximacion de autoencoder."""
-        input_dim = X.shape[1]
-        encoding_dim = int(self.params.get("encoding_dim", 32))
-        n_components = max(2, min(encoding_dim, input_dim - 1))
-        pca = PCA(n_components=n_components, random_state=42)
-        pca.fit(X)
-        reconstructed = pca.inverse_transform(pca.transform(X))
-        self.reconstruction_errors_ = np.mean((X - reconstructed) ** 2, axis=1)
-
-        anomaly_rate = self.params.get("anomaly_rate", 0.105)
-        threshold_percentile = (1.0 - anomaly_rate) * 100
-        self.threshold_ = float(np.percentile(self.reconstruction_errors_, threshold_percentile))
-        self.anomaly_labels_ = np.where(self.reconstruction_errors_ > self.threshold_, 1, 0)
-        self.labels_ = self.anomaly_labels_
-        self.model = {"type": "pca_fallback", "pca": pca}
-        self.history_ = {"method": "pca"}
-
-        logger.info(
-            "Autoencoder fallback (PCA): umbral=%.6f (p%.1f, anomaly_rate=%.3f), %d anomalias (%.1f%%)",
-            self.threshold_,
-            threshold_percentile,
-            anomaly_rate,
-            int(np.sum(self.anomaly_labels_ == 1)),
-            np.mean(self.anomaly_labels_) * 100,
-        )
 
     def _build_model(self, input_dim: int, keras) -> "keras.Model":
         """Construye la arquitectura del autoencoder."""
