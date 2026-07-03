@@ -3,6 +3,7 @@
 import numpy as np
 import pytest
 
+from ecg_anomaly.models.autoencoder import AutoencoderDetector
 from ecg_anomaly.models.factory import DetectorFactory
 from ecg_anomaly.models.kmeans import KMeansDetector
 from ecg_anomaly.models.dbscan import DBSCANDetector
@@ -146,6 +147,52 @@ class TestHDBSCANDetector:
         scores = detector.score_anomalies(X)
         assert scores.shape == (len(X),)
         assert np.all(scores >= 0)
+
+
+class TestAutoencoderDetector:
+    """Tests para el detector autoencoder con fallback sin TensorFlow."""
+
+    def test_fit_without_tensorflow_uses_fallback(self, monkeypatch):
+        """Simula la ausencia de TensorFlow (independiente de si esta instalado
+        en el entorno de test) forzando ModuleNotFoundError en el import."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "tensorflow":
+                raise ModuleNotFoundError("No module named 'tensorflow'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+
+        X, _ = _make_synthetic_data(n_normal=120, n_outliers=20)
+        detector = AutoencoderDetector(
+            "autoencoder",
+            {"epochs": 5, "batch_size": 32, "hidden_layers": [16], "encoding_dim": 8},
+        )
+        detector.fit(X)
+
+        assert isinstance(detector.model, dict)
+        assert detector.model.get("type") == "pca_fallback"
+        assert detector.anomaly_labels_ is not None
+        assert detector.labels_ is not None
+        assert set(detector.anomaly_labels_) <= {0, 1}
+        assert len(detector.anomaly_labels_) == len(X)
+
+    def test_fallback_pca_reconstruction(self):
+        """_fit_fallback_pca() debe producir errores de reconstruccion y umbral validos."""
+        X, _ = _make_synthetic_data(n_normal=120, n_outliers=20)
+        detector = AutoencoderDetector(
+            "autoencoder",
+            {"epochs": 5, "encoding_dim": 8, "anomaly_rate": 0.105},
+        )
+        detector._fit_fallback_pca(X)
+
+        assert detector.threshold_ is not None
+        assert detector.reconstruction_errors_.shape == (len(X),)
+        assert detector.predict_anomalies(X).shape == (len(X),)
+        assert set(detector.predict_anomalies(X)) <= {0, 1}
 
 
 class TestDetectorFactory:

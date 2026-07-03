@@ -28,8 +28,10 @@ class HDBSCANDetector(BaseAnomalyDetector):
     def fit(self, X: np.ndarray) -> "HDBSCANDetector":
         try:
             from sklearn.cluster import HDBSCAN
+            self._backend = "sklearn"
         except ImportError:
             from hdbscan import HDBSCAN
+            self._backend = "hdbscan"
 
         self._train_data = X
         # Extraer solo params de HDBSCAN (filtrar custom params si los hay)
@@ -50,23 +52,26 @@ class HDBSCANDetector(BaseAnomalyDetector):
         return self
 
     def predict_anomalies(self, X: np.ndarray) -> np.ndarray:
-        try:
+        # approximate_predict() de la libreria `hdbscan` solo funciona con
+        # clusterers de esa misma libreria; con el backend de sklearn
+        # (preferido cuando esta disponible) usamos siempre NN al core data.
+        if getattr(self, "_backend", None) == "hdbscan":
             from hdbscan import approximate_predict
             labels, _ = approximate_predict(self.model, X)
             return np.where(labels == -1, 1, 0)
-        except (ImportError, AttributeError):
-            from sklearn.neighbors import NearestNeighbors
 
-            core_mask = self.labels_ >= 0
-            core_data = self._train_data[core_mask]
-            if core_data is None or len(core_data) == 0:
-                logger.warning("HDBSCAN predict_anomalies: sin datos de entrenamiento")
-                return np.zeros(len(X), dtype=int)
-            neigh = NearestNeighbors(n_neighbors=1)
-            neigh.fit(core_data)
-            distances, _ = neigh.kneighbors(X)
-            threshold = np.percentile(distances, 95)
-            return np.where(distances.ravel() > threshold, 1, 0)
+        from sklearn.neighbors import NearestNeighbors
+
+        core_mask = self.labels_ >= 0
+        core_data = self._train_data[core_mask]
+        if core_data is None or len(core_data) == 0:
+            logger.warning("HDBSCAN predict_anomalies: sin datos de entrenamiento")
+            return np.zeros(len(X), dtype=int)
+        neigh = NearestNeighbors(n_neighbors=1)
+        neigh.fit(core_data)
+        distances, _ = neigh.kneighbors(X)
+        threshold = np.percentile(distances, 95)
+        return np.where(distances.ravel() > threshold, 1, 0)
 
     def score_anomalies(self, X: np.ndarray) -> np.ndarray:
         """Outlier score via distancia al core data (mayor = mas anomalo)."""

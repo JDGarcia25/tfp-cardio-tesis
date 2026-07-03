@@ -1,9 +1,0 @@
-{
-  "model_name": "kmeans",
-  "model_type": "kmeans",
-  "representation": "signal_pca",
-  "metric": "extrinsic_f1",
-  "available_models": [
-    "kmeans"
-  ]
-}

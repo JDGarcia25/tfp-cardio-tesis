@@ -301,7 +301,7 @@ class ModelComparator:
 
             for metric, weight in default_weights.items():
                 val = r.get(metric)
-                if val is None or (isinstance(val, float) and np.isnan(val)):
+                if val is None or (isinstance(val, float) and not np.isfinite(val)):
                     continue
 
                 all_vals = [
@@ -312,7 +312,7 @@ class ModelComparator:
                     v
                     for v in all_vals
                     if v is not None
-                    and not (isinstance(v, float) and np.isnan(v))
+                    and not (isinstance(v, float) and not np.isfinite(v))
                 ]
 
                 if not all_vals:
