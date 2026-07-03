@@ -17,7 +17,7 @@ Esta documentacion explica **paso a paso** el por que y el como de cada parte de
 
 - **[02 - Preprocesamiento](02_preprocesamiento.md)** — Filtrado Butterworth (0.5-40 Hz), deteccion de picos R, segmentacion en ventanas de 200 muestras (90+110), y normalizacion Z-score. Con parametros concretos y justificacion de cada uno.
 
-- **[03 - Extraccion de Features](03_extraccion_features.md)** — Los dos caminos: Path A (senal directa + PCA al 95% de varianza) y Path B (22 features manuales: morfologicas, intervalos RR, estadisticas, frecuencia, ventanas temporales). Por que probar ambos y que pregunta responde.
+- **[03 - Extraccion de Features](03_extraccion_features.md)** — Los dos caminos: Path A (senal directa + PCA al 95% de varianza) y Path B (12 features manuales: morfologicas, intervalos RR, estadisticas, frecuencia). Por que probar ambos y que pregunta responde.
 
 - **[04 - Modelos de Deteccion](04_modelos.md)** — Los 4 niveles de complejidad: K-Means (baseline), DBSCAN (densidad), HDBSCAN (densidad jerarquica, reemplaza OPTICS), Autoencoder (deep learning). Como cada uno decide que es anomalia, sus parametros y limitaciones.
 

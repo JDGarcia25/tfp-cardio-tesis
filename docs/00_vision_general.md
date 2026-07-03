@@ -57,7 +57,7 @@ Si HDBSCAN alcanza F1 de 0.82 en 5 segundos y el autoencoder 0.87 en 30 segundos
               ┌────────────┴────────────┐
               ▼                         ▼
 ┌──────────────────────┐  ┌──────────────────────────┐
-│   Path A: Senal+PCA  │  │  Path B: 22 Features     │
+│   Path A: Senal+PCA  │  │  Path B: 12 Features     │
 │   200 dim → ~8 dim   │  │  Morfologicas+RR+Stats   │
 └──────────┬───────────┘  └────────────┬─────────────┘
            │                           │

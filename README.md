@@ -27,7 +27,7 @@ Sistema de deteccion de anomalias en senales ECG que compara cuatro metodos de c
 ### Representaciones de Datos
 
 - **Path A (signal_pca):** Senal directa (200 muestras) + PCA (95% varianza)
-- **Path B (manual_features):** 22 features manuales (morfologicas, RR, estadisticas, frecuencia, ventanas temporales de 5/10 latidos)
+- **Path B (manual_features):** 12 features manuales (morfologicas, RR, estadisticas, frecuencia)
 
 ### Evaluacion en Tres Niveles
 
@@ -83,7 +83,7 @@ poetry run pytest
 
 ### Datos MIT-BIH
 
-Los archivos de MIT-BIH (.dat, .hea, .atr) deben estar en `BD2-20260218T192722Z-1-001/BD2/` (ruta configurada en `dataset_path` de `config/default.yaml`). Descargalos desde [PhysioNet](https://physionet.org/content/mitdb/) — no estan versionados en git (ver `.gitignore`), asi que hay que colocarlos manualmente tras clonar el repo.
+Los archivos de MIT-BIH (.dat, .hea, .atr) deben estar en `data/mitbih/`. El proyecto incluye un symlink a `BD2-20260218T192722Z-1-001/BD2/`.
 
 ---
 
