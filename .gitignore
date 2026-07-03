@@ -24,8 +24,10 @@ env/
 Thumbs.db
 
 # Project specific
-results/
+/results/
 data/mitbih
+/BD2-20260218T192722Z-1-001/
+/models/
 *.npy
 ecg_processing_history.json
 ecg_results/

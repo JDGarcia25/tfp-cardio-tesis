@@ -77,11 +77,11 @@ class TestManualFeatureExtractor:
         return segments, r_positions, record_idx
 
     def test_extract_returns_correct_shape(self):
-        """Debe retornar array [N, 16] (12 originales + 4 RR nuevas)."""
+        """Debe retornar array [N, 22] (16 base + 6 de ventana temporal, Fase 2)."""
         segments, r_positions, record_idx = self._make_data(100)
         extractor = ManualFeatureExtractor()
         features = extractor.extract(segments, r_positions, 360, record_idx)
-        assert features.shape == (100, 16)
+        assert features.shape == (100, 22)
 
     def test_rr_first_beat_uses_mean(self):
         """El primer latido usa mean_rr (no tiene anterior)."""
@@ -123,4 +123,4 @@ class TestManualFeatureExtractor:
         segments, r_positions, _ = self._make_data(100)
         extractor = ManualFeatureExtractor()
         features = extractor.extract(segments, r_positions, 360)
-        assert features.shape == (100, 16)
+        assert features.shape == (100, 22)

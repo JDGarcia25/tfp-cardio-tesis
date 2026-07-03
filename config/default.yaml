@@ -37,7 +37,7 @@ excluded_records:
 # al centroide (coincide con la prevalencia de anomalias del dataset).
 # NOTA: este valor debe ser identico al default en config.py.
 kmeans_params:
-   n_clusters: 10
+  n_clusters: 10
   random_state: 42
   n_init: 20
   distance_percentile: 89.5

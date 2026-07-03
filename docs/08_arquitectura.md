@@ -258,7 +258,7 @@ Ofrece **dos caminos** para representar los latidos como vectores numericos que 
 | Archivo | Camino | Que hace |
 | --- | --- | --- |
 | `signal_pca.py` | **Path A: Senal + PCA** | `SignalPCAExtractor` aplica StandardScaler + PCA, reduciendo los 200 puntos del latido a las componentes que retienen el 95% de la varianza. Tambien expone `get_raw_for_autoencoder()` que retorna los datos escalados sin reducir (el autoencoder maneja su propia reduccion via la capa de encoding). |
-| `manual.py` | **Path B: Features manuales** | `ManualFeatureExtractor` calcula 12 features morfologicas y estadisticas por latido: amplitud R, amplitud S, duracion QRS, rango, intervalo RR actual, ratio RR, diferencia RR, media, desviacion estandar, curtosis, frecuencia dominante (FFT) y energia espectral. |
+| `manual.py` | **Path B: Features manuales** | `ManualFeatureExtractor` calcula 22 features por latido: 16 base (amplitud R, amplitud S, duracion QRS, rango, intervalo RR actual, ratio RR, diferencia RR, media, desviacion estandar, curtosis, frecuencia dominante FFT, energia espectral, RR pre/post, ratio RR pre/post, desviacion RR) + 6 de ventana temporal sobre 5/10 latidos (media y std de RR, RMSSD, % de RR anormales). Ver `FEATURE_NAMES` en el modulo para el listado completo. |
 
 **Por que es un subpaquete separado:** La representacion de datos es una decision de diseno clave que afecta directamente el rendimiento de los modelos. Tener dos caminos independientes permite comparar empiricamente cual representacion produce mejores resultados, que es uno de los objetivos del trabajo.
 
@@ -324,7 +324,7 @@ config.py ──→ Parametros a todos los modulos
       preprocessing/ (Filtrar → Segmentar → Normalizar)
                 │ PreprocessedData [N, 200]
                 ▼
-        features/ (Path A: PCA  |  Path B: 12 features manuales)
+        features/ (Path A: PCA  |  Path B: 22 features manuales)
                 │ X_clustering [N, d]  +  X_autoencoder [N, 200]
                 ▼
          models/ (KMeans → DBSCAN → HDBSCAN → Autoencoder)

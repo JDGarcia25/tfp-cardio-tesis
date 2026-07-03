@@ -61,13 +61,13 @@ class SignalPCAExtractor:
         return self.scaler.transform(segments)     # [N, 200]
 ```
 
-## Path B: Features manuales (~12 caracteristicas)
+## Path B: Features manuales (22 caracteristicas)
 
 ### Que son
 
 En vez de dar la senal cruda, calculamos **mediciones especificas** que un cardiologo miraria: la altura del pico R, la duracion del complejo QRS, los intervalos entre latidos, etc.
 
-### Las 12 features
+### Las primeras 12 features (categorias base)
 
 #### Morfologicas (4 features) - "¿Como se ve el latido?"
 
@@ -101,13 +101,37 @@ En vez de dar la senal cruda, calculamos **mediciones especificas** que un cardi
 | 11 | `dominant_freq` | Frecuencia dominante (FFT) | Los complejos QRS normales tienen componentes de frecuencia caracteristicos. |
 | 12 | `spectral_energy` | Energia espectral total | Latidos anomalos con formas distorsionadas tienen diferente distribucion energetica. |
 
+#### RR extendido (4 features) - "¿Como se relaciona este latido con el anterior y el siguiente?"
+
+| # | Feature | Que mide |
+|---|---------|----------|
+| 13 | `rr_pre` | Intervalo RR hacia el latido anterior (ms) |
+| 14 | `rr_post` | Intervalo RR hacia el latido siguiente (ms) |
+| 15 | `rr_ratio_pre_post` | Ratio RR pre / RR post |
+| 16 | `rr_dev` | Desviacion relativa del RR actual respecto al RR medio del registro |
+
+#### Ventana temporal (6 features, Fase 2) - "¿Como se comporta el ritmo en los ultimos 5/10 latidos?"
+
+Calculadas sobre una ventana deslizante de intervalos RR, restringida al mismo registro (no mezcla latidos de registros distintos).
+
+| # | Feature | Que mide |
+|---|---------|----------|
+| 17 | `rr_mean_5` | Media de RR en los ultimos 5 latidos |
+| 18 | `rr_std_5` | Desviacion estandar de RR en los ultimos 5 latidos |
+| 19 | `rr_mean_10` | Media de RR en los ultimos 10 latidos |
+| 20 | `rr_std_10` | Desviacion estandar de RR en los ultimos 10 latidos |
+| 21 | `rmssd_5` | RMSSD (raiz de la media de diferencias RR al cuadrado) en la ventana de 5 — metrica estandar de variabilidad del ritmo cardiaco (HRV) |
+| 22 | `pnn_5` | Proporcion de diferencias RR consecutivas que superan el 20% del RR local — sensible a irregularidades tipo bigeminia/fibrilacion auricular |
+
+> Nota: la justificacion clinica detallada de estas 10 features (13-22) esta pendiente de redactar con mas profundidad para el documento de tesis; los nombres y el calculo exacto estan en `FEATURE_NAMES` y `ManualFeatureExtractor._extract_raw` / `_extract_window_features` en `src/ecg_anomaly/features/manual.py`.
+
 ### Implementacion
 
 ```python
 # src/ecg_anomaly/features/manual.py
 class ManualFeatureExtractor:
-    def extract(self, segments, r_peak_positions, fs=360):
-        features = np.zeros((len(segments), 12))
+    def extract(self, segments, r_peak_positions, fs=360, record_indices=None):
+        features = np.zeros((len(segments), N_MANUAL_FEATURES_TOTAL))  # 22
         rr_intervals = np.diff(r_peak_positions) / fs * 1000  # ms
 
         for i, seg in enumerate(segments):
@@ -117,7 +141,7 @@ class ManualFeatureExtractor:
             features[i, 2] = estimate_qrs_duration(seg, r_idx) # qrs_duration
             features[i, 3] = np.max(seg) - np.min(seg)        # amplitude_range
             features[i, 4] = rr_intervals[i]                  # rr_current
-            # ... (12 features total)
+            # ... (22 features total: 16 base + 6 de ventana temporal)
 
         return self.scaler.fit_transform(features)  # Escalar
 ```
@@ -126,8 +150,8 @@ class ManualFeatureExtractor:
 
 | Aspecto | Path A (Senal + PCA) | Path B (Features manuales) |
 |---------|---------------------|---------------------------|
-| **Input** | 200 muestras de senal | 12 numeros calculados |
-| **Dimensiones para clustering** | ~8 (tras PCA) | 12 |
+| **Input** | 200 muestras de senal | 22 numeros calculados |
+| **Dimensiones para clustering** | ~8 (tras PCA) | 22 |
 | **Dimensiones para autoencoder** | 200 (sin PCA) | 200 (senal escalada) |
 | **Informacion preservada** | 95% de la varianza total | Solo lo que el humano eligio medir |
 | **Ventaja** | No pierde informacion morfologica sutil | Vector compacto, mas interpretable |
@@ -135,14 +159,14 @@ class ManualFeatureExtractor:
 
 ### Pregunta que esto responde
 
-> Si Path B (12 features humanas) funciona igual de bien que Path A (200 dim + PCA), entonces la ingenieria de features manual sigue siendo valiosa y es mas eficiente. Si Path A es claramente superior, indica que hay informacion en la senal que las 12 features no capturan.
+> Si Path B (22 features humanas) funciona igual de bien que Path A (200 dim + PCA), entonces la ingenieria de features manual sigue siendo valiosa y es mas eficiente. Si Path A es claramente superior, indica que hay informacion en la senal que las 22 features no capturan.
 
 ## Archivos del codigo relevantes
 
 | Archivo | Que contiene |
 |---------|-------------|
 | `src/ecg_anomaly/features/signal_pca.py` | Path A: StandardScaler + PCA + datos raw para autoencoder |
-| `src/ecg_anomaly/features/manual.py` | Path B: 12 features + escalado |
+| `src/ecg_anomaly/features/manual.py` | Path B: 22 features + escalado |
 
 ---
 
