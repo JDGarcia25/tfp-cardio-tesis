@@ -1,3 +1,5 @@
+random_seed: 42
+
 dataset_name: mitbih
 dataset_path: BD2-20260218T192722Z-1-001/BD2
 
@@ -37,7 +39,7 @@ excluded_records:
 # al centroide (coincide con la prevalencia de anomalias del dataset).
 # NOTA: este valor debe ser identico al default en config.py.
 kmeans_params:
-   n_clusters: 10
+  n_clusters: 10
   random_state: 42
   n_init: 20
   distance_percentile: 89.5

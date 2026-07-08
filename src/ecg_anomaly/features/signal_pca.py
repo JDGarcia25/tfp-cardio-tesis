@@ -23,11 +23,33 @@ class SignalPCAExtractor:
     (el autoencoder aprende su propia representacion comprimida).
     """
 
-    def __init__(self, variance_threshold: float = 0.95):
+    def __init__(self, variance_threshold: float = 0.95, random_state: int = 42):
         self.variance_threshold = variance_threshold
         self.scaler = StandardScaler()
-        self.pca = PCA(n_components=variance_threshold)
+        self.pca = PCA(n_components=variance_threshold, random_state=random_state)
         self._is_fitted = False
+
+    def fit(self, segments: np.ndarray) -> "SignalPCAExtractor":
+        """Ajusta scaler y PCA sin transformar.
+
+        Separado de fit_transform para poder ajustar solo con un subconjunto
+        (p. ej. latidos normales) y evitar fuga de datos hacia la evaluacion.
+
+        Args:
+            segments: Array [N, beat_length] con latidos normalizados.
+        """
+        scaled = self.scaler.fit_transform(segments)
+        self.pca.fit(scaled)
+        self._is_fitted = True
+
+        logger.info(
+            "PCA: %d -> %d componentes (%.1f%% varianza retenida)",
+            segments.shape[1],
+            self.n_components,
+            self.explained_variance_ratio * 100,
+        )
+
+        return self
 
     def fit_transform(self, segments: np.ndarray) -> np.ndarray:
         """Escala y reduce dimensionalidad de los segmentos.
@@ -38,18 +60,8 @@ class SignalPCAExtractor:
         Returns:
             Array [N, k] donde k componentes retienen el % de varianza.
         """
-        scaled = self.scaler.fit_transform(segments)
-        reduced = self.pca.fit_transform(scaled)
-        self._is_fitted = True
-
-        logger.info(
-            "PCA: %d -> %d componentes (%.1f%% varianza retenida)",
-            segments.shape[1],
-            reduced.shape[1],
-            self.explained_variance_ratio * 100,
-        )
-
-        return reduced
+        self.fit(segments)
+        return self.transform(segments)
 
     def transform(self, segments: np.ndarray) -> np.ndarray:
         """Transforma nuevos segmentos usando el PCA ya ajustado."""

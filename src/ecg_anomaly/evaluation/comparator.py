@@ -35,6 +35,7 @@ class ModelComparator:
         detector: BaseAnomalyDetector,
         X: np.ndarray,
         true_labels: np.ndarray,
+        fit_idx: Optional[np.ndarray] = None,
     ) -> Dict:
         """Entrena y evalua un detector individual.
 
@@ -42,15 +43,27 @@ class ModelComparator:
             detector: Instancia del detector a evaluar.
             X: Datos de entrada (PCA para clustering, raw para autoencoder).
             true_labels: Etiquetas binarias AAMI ground truth.
+            fit_idx: Si se especifica, el detector se entrena solo con
+                X[fit_idx] (p. ej. latidos normales, para evitar fuga de
+                datos) y luego se predice sobre todo X para evaluar contra
+                true_labels. Si es None, se entrena con todo X (comportamiento
+                por defecto, adecuado para modelos de clustering puro).
 
         Returns:
             Dict con todas las metricas del modelo.
         """
         logger.info("Evaluando %s...", detector.name)
 
+        X_fit = X[fit_idx] if fit_idx is not None else X
+
         # Medir eficiencia
         with EfficiencyTracker() as tracker:
-            detector.fit(X)
+            detector.fit(X_fit)
+
+        # Si se entreno solo con un subconjunto, predecir sobre todo X
+        # para que la evaluacion sea comparable con el resto de modelos.
+        if fit_idx is not None:
+            detector.anomaly_labels_ = detector.predict_anomalies(X)
 
         detector.fit_time_seconds = tracker.elapsed_seconds
         detector.peak_memory_mb = tracker.peak_memory_mb
@@ -99,6 +112,7 @@ class ModelComparator:
         X_clustering: np.ndarray,
         X_autoencoder: np.ndarray,
         true_labels: np.ndarray,
+        autoencoder_fit_idx: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
         """Ejecuta todos los modelos configurados.
 
@@ -106,17 +120,22 @@ class ModelComparator:
             X_clustering: Features para clustering (PCA o manual).
             X_autoencoder: Features para autoencoder (raw escalado).
             true_labels: Etiquetas binarias AAMI.
+            autoencoder_fit_idx: Indices (tipicamente solo-normales) usados
+                para entrenar el autoencoder, evitando fuga de datos. Los
+                modelos de clustering puro siguen entrenando con todo
+                X_clustering (ver guia de mejoras #1, "Nota honesta").
 
         Returns:
             DataFrame con resultados comparativos.
         """
         for model_name in self.config.models:
             params = getattr(self.config, f"{model_name}_params", {})
-            detector = DetectorFactory.create(model_name, params)
+            detector = DetectorFactory.create(model_name, params, seed=self.config.random_seed)
 
             # Autoencoder usa datos raw, clustering usa PCA/features
             X = X_autoencoder if model_name == "autoencoder" else X_clustering
-            self.evaluate_model(detector, X, true_labels)
+            fit_idx = autoencoder_fit_idx if model_name == "autoencoder" else None
+            self.evaluate_model(detector, X, true_labels, fit_idx=fit_idx)
 
         return self.get_comparison_table()
 
@@ -150,7 +169,7 @@ class ModelComparator:
                 continue
 
             params = getattr(self.config, f"{model_name}_params", {})
-            detector = DetectorFactory.create(model_name, params)
+            detector = DetectorFactory.create(model_name, params, seed=self.config.random_seed)
             X = X_clustering
 
             # Fit global (una vez)

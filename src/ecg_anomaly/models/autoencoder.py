@@ -12,6 +12,7 @@ import os
 from typing import Dict, List
 
 import numpy as np
+from sklearn.decomposition import PCA
 
 from ecg_anomaly.models.base import BaseAnomalyDetector
 
@@ -36,11 +37,15 @@ class AutoencoderDetector(BaseAnomalyDetector):
         self.history_ = None
 
     def fit(self, X: np.ndarray) -> "AutoencoderDetector":
-        import tensorflow as tf
-        from tensorflow import keras
+        try:
+            import tensorflow as tf
+            from tensorflow import keras
+        except ModuleNotFoundError:
+            logger.warning("TensorFlow no está instalado; usando fallback PCA-based para continuar.")
+            return self._fit_fallback(X)
 
         # Reproducibilidad
-        tf.random.set_seed(42)
+        tf.random.set_seed(self.params.get("random_state", 42))
 
         # Construir modelo
         model = self._build_model(X.shape[1], keras)
@@ -87,6 +92,33 @@ class AutoencoderDetector(BaseAnomalyDetector):
             np.mean(self.anomaly_labels_) * 100,
         )
 
+        return self
+
+    def _fit_fallback(self, X: np.ndarray) -> "AutoencoderDetector":
+        """Fallback simple basado en PCA cuando TensorFlow no está disponible."""
+        n_components = min(4, X.shape[1])
+        pca = PCA(n_components=n_components, random_state=self.params.get("random_state", 42))
+        projected = pca.fit_transform(X)
+
+        # Reconstruct with PCA and use reconstruction error as anomaly score
+        reconstructed = pca.inverse_transform(projected)
+        self.reconstruction_errors_ = np.mean((X - reconstructed) ** 2, axis=1)
+
+        anomaly_rate = self.params.get("anomaly_rate", 0.105)
+        threshold_percentile = (1.0 - anomaly_rate) * 100
+        self.threshold_ = float(np.percentile(self.reconstruction_errors_, threshold_percentile))
+        self.anomaly_labels_ = np.where(self.reconstruction_errors_ > self.threshold_, 1, 0)
+        self.labels_ = self.anomaly_labels_
+        self.model = pca
+
+        logger.info(
+            "Autoencoder fallback (PCA): umbral=%.6f (p%.1f, anomaly_rate=%.3f), %d anomalias (%.1f%%)",
+            self.threshold_,
+            threshold_percentile,
+            anomaly_rate,
+            int(np.sum(self.anomaly_labels_ == 1)),
+            np.mean(self.anomaly_labels_) * 100,
+        )
         return self
 
     def predict_anomalies(self, X: np.ndarray) -> np.ndarray:
