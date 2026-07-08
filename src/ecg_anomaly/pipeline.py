@@ -15,10 +15,12 @@ from sklearn.preprocessing import StandardScaler
 
 from ecg_anomaly.config import SystemConfig
 from ecg_anomaly.data.loader import MITBIHLoader
+from ecg_anomaly.data.splitting import make_normal_fit_split
 from ecg_anomaly.evaluation.comparator import ModelComparator
 from ecg_anomaly.features.manual import ManualFeatureExtractor
 from ecg_anomaly.features.signal_pca import SignalPCAExtractor
 from ecg_anomaly.preprocessing.pipeline import PreprocessingPipeline
+from ecg_anomaly.seeding import set_global_seed
 from ecg_anomaly.visualization.reports import save_full_report
 
 logger = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ class ECGAnomalyPipeline:
     def __init__(self, config: SystemConfig):
         self.config = config
         config.setup_logging()
+        set_global_seed(config.random_seed)
         self.comparator = ModelComparator(config)
         self._scaler: StandardScaler | None = None
         self._pca = None
@@ -65,13 +68,20 @@ class ECGAnomalyPipeline:
         preprocessor = PreprocessingPipeline(self.config)
         preprocessed = preprocessor.run(dataset)
 
+        # Split solo-normal para evitar fuga de datos en el autoencoder:
+        # el scaler y el autoencoder se ajustan solo con normales, y se
+        # evaluan sobre todo el dataset (normales restantes + anomalias).
+        fit_idx, _ = make_normal_fit_split(preprocessed, seed=self.config.random_seed)
+
         # 3. Extraccion de features
         logger.info("[3/5] Extrayendo features (representacion: %s)...", self.config.representation)
         X_clustering, X_autoencoder = self._extract_features(preprocessed)
 
         # 4 & 5. Modelos + Evaluacion
         logger.info("[4/5] Ejecutando y evaluando modelos...")
-        results_df = self.comparator.run_all(X_clustering, X_autoencoder, preprocessed.labels)
+        results_df = self.comparator.run_all(
+            X_clustering, X_autoencoder, preprocessed.labels, autoencoder_fit_idx=fit_idx
+        )
 
         # 6. Guardar todos los modelos entrenados (ANTES de per-record, que es muy lento)
         logger.info("[6/5] Guardando todos los modelos...")
@@ -115,7 +125,9 @@ class ECGAnomalyPipeline:
     def _extract_features(self, preprocessed):
         """Extrae features segun la representacion configurada."""
         if self.config.representation == "signal_pca":
-            extractor = SignalPCAExtractor(self.config.pca_variance_threshold)
+            extractor = SignalPCAExtractor(
+                self.config.pca_variance_threshold, random_state=self.config.random_seed
+            )
             X_clustering = extractor.fit_transform(preprocessed.segments)
             X_autoencoder = extractor.get_raw_for_autoencoder(preprocessed.segments)
             self._scaler = extractor.scaler

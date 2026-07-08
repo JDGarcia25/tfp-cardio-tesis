@@ -29,6 +29,7 @@ data/mitbih
 *.npy
 ecg_processing_history.json
 ecg_results/
+cache/
 
 # Jupyter
 .ipynb_checkpoints/

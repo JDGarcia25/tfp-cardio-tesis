@@ -7,6 +7,7 @@ from ecg_anomaly.models.factory import DetectorFactory
 from ecg_anomaly.models.kmeans import KMeansDetector
 from ecg_anomaly.models.dbscan import DBSCANDetector
 from ecg_anomaly.models.hdbscan_model import HDBSCANDetector
+from ecg_anomaly.models.autoencoder import AutoencoderDetector
 
 
 def _make_synthetic_data(n_normal: int = 200, n_outliers: int = 20, seed: int = 42):
@@ -146,6 +147,32 @@ class TestHDBSCANDetector:
         scores = detector.score_anomalies(X)
         assert scores.shape == (len(X),)
         assert np.all(scores >= 0)
+
+
+class TestAutoencoderDetector:
+    """Tests para el detector Autoencoder."""
+
+    def test_fit_falls_back_without_tensorflow(self, monkeypatch):
+        """Debe poder ejecutarse con un fallback PCA si TensorFlow no está instalado."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def guarded_import(name, *args, **kwargs):
+            if name == "tensorflow":
+                raise ModuleNotFoundError("No module named 'tensorflow'")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+        X, _ = _make_synthetic_data(n_normal=120, n_outliers=12)
+        detector = AutoencoderDetector("autoencoder", {"epochs": 2, "batch_size": 32, "encoding_dim": 4})
+        detector.fit(X)
+
+        assert detector.anomaly_labels_ is not None
+        assert detector.labels_ is not None
+        assert len(detector.anomaly_labels_) == len(X)
+        assert set(detector.anomaly_labels_).issubset({0, 1})
 
 
 class TestDetectorFactory:

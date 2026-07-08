@@ -1,6 +1,6 @@
 """Fabrica de detectores de anomalias (Patron Factory)."""
 
-from typing import Dict, List, Type
+from typing import Dict, List, Optional, Type
 
 from ecg_anomaly.models.autoencoder import AutoencoderDetector
 from ecg_anomaly.models.base import BaseAnomalyDetector
@@ -26,13 +26,19 @@ class DetectorFactory:
         "autoencoder": AutoencoderDetector,
     }
 
+    # Detectores cuyo hiperparametro de aleatoriedad es "random_state"
+    _SEEDED_DETECTORS = {"kmeans", "autoencoder"}
+
     @classmethod
-    def create(cls, name: str, params: Dict) -> BaseAnomalyDetector:
+    def create(cls, name: str, params: Dict, seed: Optional[int] = None) -> BaseAnomalyDetector:
         """Crea una instancia del detector especificado.
 
         Args:
             name: Nombre del algoritmo (kmeans, dbscan, hdbscan, autoencoder).
             params: Hiperparametros del modelo.
+            seed: Semilla global (config.random_seed). Si se especifica, se
+                propaga como random_state a los detectores que soportan
+                aleatoriedad controlada, para reproducibilidad total.
 
         Raises:
             ValueError: Si el nombre no esta registrado.
@@ -42,7 +48,10 @@ class DetectorFactory:
                 f"Detector '{name}' no disponible. "
                 f"Registrados: {cls.list_detectors()}"
             )
-        return cls._detectors[name](name, params)
+        detector_params = dict(params)
+        if seed is not None and name in cls._SEEDED_DETECTORS:
+            detector_params["random_state"] = seed
+        return cls._detectors[name](name, detector_params)
 
     @classmethod
     def register(cls, name: str, detector_class: Type[BaseAnomalyDetector]) -> None:

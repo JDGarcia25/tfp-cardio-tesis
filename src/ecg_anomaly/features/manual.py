@@ -39,6 +39,11 @@ N_MANUAL_FEATURES_BASE = 16
 N_MANUAL_FEATURES_WINDOW = 6
 N_MANUAL_FEATURES_TOTAL = N_MANUAL_FEATURES_BASE + N_MANUAL_FEATURES_WINDOW
 
+# Nombres de las 6 features de ventana temporal, en orden (indices 16-21).
+# Fuente unica de verdad: no asumir el slice fijo features[:, 16:22] en
+# notebooks/otros modulos, derivar los indices de FEATURE_NAMES.
+WINDOW_FEATURE_NAMES: List[str] = FEATURE_NAMES[N_MANUAL_FEATURES_BASE:N_MANUAL_FEATURES_TOTAL]
+
 
 class ManualFeatureExtractor:
     """Extractor Path B: caracteristicas manuales (~22 features).
@@ -75,6 +80,20 @@ class ManualFeatureExtractor:
 
         logger.info("Features manuales: %d latidos x %d features", *scaled.shape)
         return scaled
+
+    def extract_raw(
+        self,
+        segments: np.ndarray,
+        r_peak_positions: np.ndarray,
+        fs: int = 360,
+        record_indices: np.ndarray | None = None,
+    ) -> np.ndarray:
+        """API publica para obtener features crudas (sin escalar).
+
+        Util para inspeccionar/visualizar features (p. ej. las de ventana
+        temporal) sin pasar por el StandardScaler interno de extract().
+        """
+        return self._extract_raw(segments, r_peak_positions, fs, record_indices)
 
     def _extract_raw(
         self,

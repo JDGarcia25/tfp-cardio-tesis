@@ -19,6 +19,9 @@ class SystemConfig:
     de deteccion de anomalias se centralizan aqui.
     """
 
+    # Reproducibilidad
+    random_seed: int = 42
+
     # Dataset
     dataset_name: str = "mitbih"
     dataset_path: str = "./data/mitbih"

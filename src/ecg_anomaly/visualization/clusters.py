@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
+from ecg_anomaly.visualization.labels import LABELS_ES
+
 
 def plot_pca_scatter(
     X_pca: np.ndarray,
@@ -79,7 +81,7 @@ def plot_anomaly_distribution(
     fig, axes = plt.subplots(1, 2, figsize=(10, 4))
 
     for ax, data, title in [
-        (axes[0], true_labels, "Ground Truth (AAMI)"),
+        (axes[0], true_labels, LABELS_ES["Ground Truth (AAMI)"]),
         (axes[1], pred_labels, f"Prediccion ({model_name})"),
     ]:
         unique, counts = np.unique(data, return_counts=True)
