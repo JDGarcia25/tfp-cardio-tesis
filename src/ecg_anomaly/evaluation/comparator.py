@@ -332,6 +332,7 @@ class ModelComparator:
                     for v in all_vals
                     if v is not None
                     and not (isinstance(v, float) and np.isnan(v))
+                    and np.isfinite(v)
                 ]
 
                 if not all_vals:
@@ -340,7 +341,11 @@ class ModelComparator:
                 min_val = min(all_vals)
                 max_val = max(all_vals)
 
-                if max_val == min_val:
+                if not np.isfinite(val):
+                    # Valor centinela (p.ej. davies_bouldin=inf con <2 clusters
+                    # validos): tratar como peor caso posible, no propagar nan.
+                    normalized = 0.0
+                elif max_val == min_val:
                     normalized = 1.0
                 elif metric in lower_is_better:
                     normalized = 1.0 - (val - min_val) / (max_val - min_val)

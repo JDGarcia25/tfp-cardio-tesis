@@ -1,4 +1,4 @@
 {
-  "representation": "signal_pca",
-  "majority_cluster": 33
+  "representation": "manual_features",
+  "majority_cluster": 194
 }
