@@ -28,4 +28,22 @@ LABELS_ES = {
     "Normal": "Normal",
     "Anomalous": "Anomalo",
     "Anomaly": "Anomalo",
+    "Pairwise Agreement Between Models": "Concordancia por pares entre modelos",
+    "Model Comparison: All Metrics": "Comparacion de modelos: todas las metricas",
+    "MIT-BIH Records by Pathology Category": "Registros MIT-BIH por categoria de patologia",
+    "AAMI Binary Class Distribution": "Distribucion binaria de clases AAMI",
+    "Annotation Symbol Distribution": "Distribucion de simbolos de anotacion",
+    "Per-Record Class Distribution (sorted by anomaly ratio)": (
+        "Distribucion de clases por registro (ordenado por proporcion de anomalias)"
+    ),
+    "PCA Cumulative Variance": "Varianza acumulada de PCA",
+    "Variance per Component (first 30)": "Varianza por componente (primeros 30)",
+    "PCA Projection (colored by AAMI ground truth)": (
+        "Proyeccion PCA (coloreada por verdad de referencia AAMI)"
+    ),
+    "Manual Feature Distributions by Class": "Distribucion de features manuales por clase",
+    "Manual Feature Correlation Matrix": "Matriz de correlacion de features manuales",
+    "Feature Representations: Signal PCA vs Manual Features": (
+        "Representaciones de features: PCA de senal vs features manuales"
+    ),
 }

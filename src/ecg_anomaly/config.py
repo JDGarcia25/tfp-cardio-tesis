@@ -51,12 +51,18 @@ class SystemConfig:
     )
 
     # Hiperparametros por modelo
+    # NOTA: estos son los defaults de fallback cuando no se carga un YAML.
+    # config/default.yaml es la fuente de verdad para una corrida real;
+    # mantenerlos alineados evita que un SystemConfig() sin YAML difiera
+    # silenciosamente de la configuracion documentada.
     kmeans_params: Dict = field(
         default_factory=lambda: {
-            "n_clusters": 10,
+            "n_clusters": 5,
             "random_state": 42,
             "n_init": 20,
+            "threshold_method": "iqr",
             "distance_percentile": 89.5,
+            "min_cluster_size": 10,
         }
     )
     dbscan_params: Dict = field(
@@ -71,12 +77,13 @@ class SystemConfig:
     )
     autoencoder_params: Dict = field(
         default_factory=lambda: {
-            "encoding_dim": 6,
-            "hidden_layers": [10, 8],
-            "epochs": 30,
+            "encoding_dim": 16,
+            "hidden_layers": [64, 32],
+            "epochs": 100,
             "batch_size": 256,
-            "anomaly_rate": 0.105,
+            "normal_fpr": 0.105,
             "learning_rate": 0.001,
+            "random_state": 42,
         }
     )
 
@@ -97,15 +104,47 @@ class SystemConfig:
         Resuelve dataset_path relativo a la raiz del proyecto
         (donde esta pyproject.toml) para evitar errores de CWD.
         """
-        yaml_path = Path(path).resolve()
-        # Buscar la raiz del proyecto (donde esta pyproject.toml)
-        project_root = yaml_path.parent
-        while not (project_root / "pyproject.toml").exists():
-            if project_root.parent == project_root:
-                break
-            project_root = project_root.parent
-        
-        with open(path, "r") as f:
+        # Buscar la raiz del proyecto (si existe) empezando desde el paquete y desde CWD
+        def _find_root(start: Path):
+            cur = start
+            while True:
+                if (cur / "pyproject.toml").exists():
+                    return cur
+                if cur.parent == cur:
+                    return None
+                cur = cur.parent
+
+        file_root = Path(__file__).resolve().parent
+        project_root = _find_root(file_root) or _find_root(Path.cwd())
+        if project_root is None:
+            project_root = Path.cwd()
+
+        p = Path(path)
+        # Candidates to try (in order): absolute path, project_root-relative, CWD-relative, package-relative
+        candidates = []
+        if p.is_absolute():
+            candidates.append(p)
+        else:
+            candidates.append(project_root / p)
+            candidates.append(Path.cwd() / p)
+            candidates.append(file_root / p)
+
+        yaml_path = None
+        for c in candidates:
+            try:
+                if c.exists():
+                    yaml_path = c.resolve()
+                    break
+            except Exception:
+                continue
+
+        if yaml_path is None or not yaml_path.exists():
+            tried = [str(x.resolve()) if x.exists() else str(x) for x in candidates]
+            raise FileNotFoundError(
+                f"Config file not found. Tried the following locations: {tried}"
+            )
+
+        with open(yaml_path, "r") as f:
             config_dict = yaml.safe_load(f)
         
         # Resolver dataset_path relativo a la raiz del proyecto

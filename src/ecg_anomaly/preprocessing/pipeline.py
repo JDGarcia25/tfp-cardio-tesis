@@ -125,5 +125,10 @@ class PreprocessingPipeline:
                 "n_normal": int(np.sum(labels == 0)),
                 "n_anomalous": int(np.sum(labels == 1)),
                 "n_records": len(dataset.records),
+                # Mapea record_indices -> ID de registro, en el mismo orden
+                # de enumeracion usado arriba. Necesario para el split
+                # inter-paciente (make_interpatient_split), que agrupa
+                # latidos por registro de origen.
+                "record_ids": dataset.record_ids,
             },
         )

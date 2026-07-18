@@ -1,6 +1,7 @@
 """Comparador multi-modelo: ejecuta y evalua todos los detectores."""
 
 import logging
+import warnings
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -36,6 +37,7 @@ class ModelComparator:
         X: np.ndarray,
         true_labels: np.ndarray,
         fit_idx: Optional[np.ndarray] = None,
+        eval_idx: Optional[np.ndarray] = None,
     ) -> Dict:
         """Entrena y evalua un detector individual.
 
@@ -43,16 +45,27 @@ class ModelComparator:
             detector: Instancia del detector a evaluar.
             X: Datos de entrada (PCA para clustering, raw para autoencoder).
             true_labels: Etiquetas binarias AAMI ground truth.
-            fit_idx: Si se especifica, el detector se entrena solo con
-                X[fit_idx] (p. ej. latidos normales, para evitar fuga de
-                datos) y luego se predice sobre todo X para evaluar contra
-                true_labels. Si es None, se entrena con todo X (comportamiento
-                por defecto, adecuado para modelos de clustering puro).
+            fit_idx: Indices para el ajuste. Si es None, se ajusta con todo X.
+            eval_idx: Indices sobre los que se MIDEN las metricas extrinsecas.
+                Debe ser disjunto de fit_idx. Si es None, se mide sobre todo X
+                (valido solo para modelos que se ajustan con todo el dataset,
+                como el clustering puro).
 
         Returns:
             Dict con todas las metricas del modelo.
         """
         logger.info("Evaluando %s...", detector.name)
+
+        # Contrato explicito: fit y eval no pueden solaparse. Si se solapan,
+        # las metricas se miden sobre datos de entrenamiento y quedan infladas.
+        if fit_idx is not None and eval_idx is not None:
+            solapamiento = np.intersect1d(fit_idx, eval_idx)
+            if len(solapamiento) > 0:
+                raise ValueError(
+                    f"fit_idx y eval_idx se solapan en {len(solapamiento):,} "
+                    f"indices. Las metricas se mediran sobre datos de "
+                    f"entrenamiento y estaran infladas."
+                )
 
         X_fit = X[fit_idx] if fit_idx is not None else X
 
@@ -60,26 +73,48 @@ class ModelComparator:
         with EfficiencyTracker() as tracker:
             detector.fit(X_fit)
 
-        # Si se entreno solo con un subconjunto, predecir sobre todo X
-        # para que la evaluacion sea comparable con el resto de modelos.
+        # Predecir sobre TODO X: las visualizaciones de los notebooks
+        # necesitan la prediccion completa, alineada indice a indice.
         if fit_idx is not None:
             detector.anomaly_labels_ = detector.predict_anomalies(X)
 
         detector.fit_time_seconds = tracker.elapsed_seconds
         detector.peak_memory_mb = tracker.peak_memory_mb
 
-        result: Dict = {
-            "model": detector.name,
-        }
+        result: Dict = {"model": detector.name}
+
+        # --- CLAVE: las metricas se MIDEN solo sobre eval_idx ---
+        # Aunque la prediccion cubre todo X, evaluar sobre los latidos que
+        # el modelo uso para ajustarse mide memoria, no generalizacion.
+        idx_metricas = eval_idx if eval_idx is not None else np.arange(len(X))
+        result["n_eval_beats"] = int(len(idx_metricas))
+        result["eval_scope"] = "held-out" if eval_idx is not None else "full"
 
         # Metricas intrinsecas (solo para modelos de clustering)
         if detector.name != "autoencoder" and detector.labels_ is not None:
             intrinsic = evaluate_intrinsic(X, detector.labels_)
             result.update({f"intrinsic_{k}": v for k, v in intrinsic.items()})
 
-        # Metricas extrinsecas (todos los modelos)
+        # Puntuaciones continuas para un AUC-ROC real. DBSCAN no define un
+        # score de anomalia con sentido de ordenamiento (su salida es una
+        # particion con ruido, no un ranking), asi que su AUC quedara en NaN.
+        # Reportar NaN es correcto: es mas honesto que fabricar un numero.
+        scores = None
+        try:
+            scores = detector.score_anomalies(X)[idx_metricas]
+        except (NotImplementedError, AttributeError, RuntimeError):
+            logger.info(
+                "%s no expone score_anomalies(); AUC-ROC quedara como NaN",
+                detector.name,
+            )
+
+        # Metricas extrinsecas, medidas SOLO sobre held-out
         if detector.anomaly_labels_ is not None:
-            extrinsic = evaluate_extrinsic(true_labels, detector.anomaly_labels_)
+            extrinsic = evaluate_extrinsic(
+                true_labels[idx_metricas],
+                detector.anomaly_labels_[idx_metricas],
+                scores=scores,
+            )
             result.update({f"extrinsic_{k}": v for k, v in extrinsic.items()})
 
         # Metricas de eficiencia
@@ -90,18 +125,21 @@ class ModelComparator:
 
         # Estadisticas de anomalias
         if detector.anomaly_labels_ is not None:
-            n_anomalies = int(np.sum(detector.anomaly_labels_ == 1))
+            n_anomalies = int(np.sum(detector.anomaly_labels_[idx_metricas] == 1))
             result["n_anomalies"] = n_anomalies
-            result["anomaly_ratio"] = n_anomalies / len(detector.anomaly_labels_)
+            result["anomaly_ratio"] = n_anomalies / len(idx_metricas)
 
         self.results.append(result)
         self.detectors.append(detector)
 
+        sil = result.get("intrinsic_silhouette")
+        sil_txt = f"{sil:.3f}" if sil is not None else "n/a (sin clusters)"
+
         logger.info(
-            "%s completado: F1=%.3f, Silhouette=%.3f, Tiempo=%.2fs",
+            "%s completado: F1=%.3f, Silhouette=%s, Tiempo=%.2fs",
             detector.name,
-            result.get("extrinsic_f1", 0),
-            result.get("intrinsic_silhouette", -1),
+            result.get("extrinsic_f1", 0.0),
+            sil_txt,
             tracker.elapsed_seconds,
         )
 
@@ -113,6 +151,7 @@ class ModelComparator:
         X_autoencoder: np.ndarray,
         true_labels: np.ndarray,
         autoencoder_fit_idx: Optional[np.ndarray] = None,
+        eval_idx: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
         """Ejecuta todos los modelos configurados.
 
@@ -124,6 +163,10 @@ class ModelComparator:
                 para entrenar el autoencoder, evitando fuga de datos. Los
                 modelos de clustering puro siguen entrenando con todo
                 X_clustering (ver guia de mejoras #1, "Nota honesta").
+            eval_idx: Indices held-out sobre los que se miden las metricas.
+                Se aplica a TODOS los modelos, no solo al autoencoder: solo
+                asi la tabla comparativa es honesta, porque todos los modelos
+                se miden sobre exactamente el mismo conjunto de latidos.
 
         Returns:
             DataFrame con resultados comparativos.
@@ -135,7 +178,7 @@ class ModelComparator:
             # Autoencoder usa datos raw, clustering usa PCA/features
             X = X_autoencoder if model_name == "autoencoder" else X_clustering
             fit_idx = autoencoder_fit_idx if model_name == "autoencoder" else None
-            self.evaluate_model(detector, X, true_labels, fit_idx=fit_idx)
+            self.evaluate_model(detector, X, true_labels, fit_idx=fit_idx, eval_idx=eval_idx)
 
         return self.get_comparison_table()
 
@@ -241,6 +284,7 @@ class ModelComparator:
                 "Davies-Bouldin": r.get("intrinsic_davies_bouldin", None),
                 "Calinski-Harabasz": r.get("intrinsic_calinski_harabasz", None),
                 "Accuracy": r.get("extrinsic_accuracy", None),
+                "Balanced Accuracy": r.get("extrinsic_balanced_accuracy", None),
                 "Sensitivity": r.get("extrinsic_sensitivity", None),
                 "Specificity": r.get("extrinsic_specificity", None),
                 "F1": r.get("extrinsic_f1", None),
@@ -248,50 +292,72 @@ class ModelComparator:
                 "Tiempo (s)": r.get("efficiency_time_seconds", None),
                 "Memoria (MB)": r.get("efficiency_peak_memory_mb", None),
                 "Anomalias": r.get("n_anomalies", None),
+                "Latidos evaluados": r.get("n_eval_beats", None),
+                "Alcance eval": r.get("eval_scope", None),
             }
             rows.append(row)
 
         return pd.DataFrame(rows)
 
     def get_best_model(self, metric: str = "extrinsic_f1") -> Optional[str]:
-        """Retorna el nombre del mejor modelo segun una metrica."""
+        """Retorna el nombre del mejor modelo segun una metrica.
+
+        Los modelos que no reportan la metrica (p. ej. el autoencoder no
+        produce clusters -> sin Silhouette) se ignoran en lugar de romper
+        la comparacion.
+        """
         if not self.results:
             return None
 
         lower_is_better = {"intrinsic_davies_bouldin", "efficiency_time_seconds"}
 
-        best_idx = 0
-        best_val = self.results[0].get(metric, float("-inf"))
+        # Filtrar los modelos que si reportan la metrica y son comparables
+        candidatos = [
+            r for r in self.results
+            if r.get(metric) is not None
+            and isinstance(r.get(metric), (int, float))
+            and np.isfinite(r.get(metric))
+        ]
+        if not candidatos:
+            logger.warning("Ningun modelo reporta la metrica %s", metric)
+            return None
 
-        for i, r in enumerate(self.results[1:], 1):
-            val = r.get(metric, float("-inf"))
-            if val is None:
-                continue
-            if metric in lower_is_better:
-                if val < best_val:
-                    best_val = val
-                    best_idx = i
-            else:
-                if val > best_val:
-                    best_val = val
-                    best_idx = i
-
-        return self.results[best_idx]["model"]
+        fn = min if metric in lower_is_better else max
+        return fn(candidatos, key=lambda r: r[metric])["model"]
 
     def get_multi_criteria_ranking(
         self, weights: Optional[Dict[str, float]] = None
     ) -> pd.DataFrame:
-        """Ranking multi-criterio combinando todas las metricas.
+        """[OBSOLETO - NO USAR EN LA EVALUACION DE LA TESIS]
 
-        Normaliza cada metrica a [0, 1] (1=mejor) y calcula suma ponderada.
-        Las metricas 'lower-is-better' se invierten antes de normalizar.
+        Ranking multi-criterio (Composite). Retirado de la metodologia
+        tras la evaluacion del jurado por dos defectos de fondo:
 
-        Args:
-            weights: Dict con pesos personalizados. Si es None, usa valores por defecto.
+        1. Mezcla en un unico escalar magnitudes que responden preguntas
+           distintas e inconmensurables: capacidad de deteccion (F1),
+           geometria del clustering (Silhouette) y coste computacional
+           (tiempo, memoria). Un modelo puede "ganar" por ser rapido.
 
-        Returns:
-            DataFrame con puntajes normalizados, composite y ranking.
+        2. La normalizacion min-max es RELATIVA al conjunto de modelos
+           evaluados: agregar o quitar un modelo cambia el puntaje de
+           todos los demas. El ranking no es estable.
+
+        Sustituido por: seleccion con metricas extrinsecas (notebook 05,
+        seccion 9) + diagnostico intrinseco por separado, siguiendo la
+        recomendacion de Rendon et al. (2011) de no mezclar validacion
+        interna y externa en un solo indice.
+
+        Se conserva unicamente para reproducir los resultados del informe
+        anterior. NO debe usarse para seleccionar el modelo final.
         """
+        warnings.warn(
+            "get_multi_criteria_ranking() esta obsoleto y no debe usarse "
+            "para la seleccion del modelo. Use metricas extrinsecas "
+            "(notebook 05, seccion 9).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
         default_weights = {
             "extrinsic_f1": 0.25,
             "extrinsic_sensitivity": 0.20,
