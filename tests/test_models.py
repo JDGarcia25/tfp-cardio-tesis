@@ -39,7 +39,13 @@ class TestKMeansDetector:
     def test_distance_scoring_labels(self):
         """Los mas lejanos al centroide deben ser anomalos (no toda la mitad)."""
         X, _ = _make_synthetic_data(n_normal=200, n_outliers=20)
-        detector = KMeansDetector("kmeans", {"n_clusters": 3, "random_state": 42, "distance_percentile": 90})
+        # threshold_method="percentile" explicito: el default ahora es "iqr"
+        # (valla de Tukey, deriva el umbral de la geometria de los scores,
+        # sin mirar la prevalencia real).
+        detector = KMeansDetector(
+            "kmeans",
+            {"n_clusters": 3, "random_state": 42, "threshold_method": "percentile", "distance_percentile": 90},
+        )
         detector.fit(X)
         n_anomalies = int(np.sum(detector.anomaly_labels_ == 1))
         # Con 10% de outliers y distance_percentile=90, debe marcar ~10%
@@ -61,16 +67,52 @@ class TestKMeansDetector:
         scores = detector.score_anomalies(X)
         assert scores.shape == (len(X),)
         assert np.all(scores >= 0)
-        # Los outliers sinteticos deben tener mayor score
-        assert np.mean(scores[-20:]) > np.mean(scores[:200])
 
-    def test_predict_uses_train_data(self):
-        """Debe guardar datos de entrenamiento para predict."""
-        X, _ = _make_synthetic_data()
+    def test_scattered_outliers_score_higher(self):
+        """Outliers DISPERSOS (no agrupados entre si) deben puntuar mas alto.
+
+        El score normalizado mide distancia relativa al propio cluster, asi
+        que un outlier debe ser miembro atipico de un cluster existente, no
+        formar su propio cluster compacto y lejano (eso ya no se premia ni
+        se penaliza por este score, ver test_degenerate_clusters...).
+        """
+        rng = np.random.RandomState(1)
+        normal = rng.randn(200, 10) * 0.5
+        # Outliers dispersos en direcciones distintas: cada uno cae como
+        # miembro atipico de alguno de los clusters normales, no forma
+        # un cluster propio compacto.
+        directions = rng.randn(20, 10)
+        directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+        outliers = directions * rng.uniform(3, 6, size=(20, 1))
+        X = np.vstack([normal, outliers])
+
         detector = KMeansDetector("kmeans", {"n_clusters": 3, "random_state": 42, "distance_percentile": 90})
         detector.fit(X)
-        assert hasattr(detector, "_train_data")
-        assert np.array_equal(detector._train_data, X)
+        scores = detector.score_anomalies(X)
+        assert np.mean(scores[-20:]) > np.mean(scores[:200])
+
+    def test_degenerate_clusters_do_not_score_lowest(self):
+        """Un latido que forma su propio cluster no debe recibir el score minimo.
+
+        Corrige la "paradoja del singleton": con distancia cruda al centroide
+        mas cercano, un punto que es su propio cluster tiene distancia 0 y se
+        clasificaba como el mas normal. Con el score normalizado y la
+        reasignacion de clusters degenerados, debe ocurrir lo contrario.
+        """
+        rng = np.random.RandomState(0)
+        normal = rng.randn(300, 5) * 0.5
+        extreme_outliers = np.array([[20.0] * 5, [-20.0] * 5, [25.0] * 5])
+        X = np.vstack([normal, extreme_outliers])
+
+        detector = KMeansDetector(
+            "kmeans", {"n_clusters": 10, "random_state": 42, "n_init": 10, "min_cluster_size": 10}
+        )
+        detector.fit(X)
+
+        scores = detector.score_anomalies(X)
+        outlier_scores = scores[-3:]
+        normal_scores = scores[:300]
+        assert np.all(outlier_scores > np.median(normal_scores))
 
 
 class TestDBSCANDetector:

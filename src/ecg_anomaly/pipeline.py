@@ -15,7 +15,7 @@ from sklearn.preprocessing import StandardScaler
 
 from ecg_anomaly.config import SystemConfig
 from ecg_anomaly.data.loader import MITBIHLoader
-from ecg_anomaly.data.splitting import make_normal_fit_split
+from ecg_anomaly.data.splitting import make_interpatient_split
 from ecg_anomaly.evaluation.comparator import ModelComparator
 from ecg_anomaly.features.manual import ManualFeatureExtractor
 from ecg_anomaly.features.signal_pca import SignalPCAExtractor
@@ -68,19 +68,25 @@ class ECGAnomalyPipeline:
         preprocessor = PreprocessingPipeline(self.config)
         preprocessed = preprocessor.run(dataset)
 
-        # Split solo-normal para evitar fuga de datos en el autoencoder:
-        # el scaler y el autoencoder se ajustan solo con normales, y se
-        # evaluan sobre todo el dataset (normales restantes + anomalias).
-        fit_idx, _ = make_normal_fit_split(preprocessed, seed=self.config.random_seed)
+        # Split inter-paciente DS1/DS2 (de Chazal et al., 2004): el scaler y
+        # el autoencoder se ajustan SOLO con normales de registros DS1
+        # (fit_idx); las metricas se miden sobre TODO DS2 (eval_idx),
+        # registros que el modelo nunca vio. Cierra la fuga de clase Y la
+        # fuga de paciente (evaluar sobre el mismo paciente que entreno).
+        fit_idx, eval_idx = make_interpatient_split(preprocessed, dataset.record_ids)
 
         # 3. Extraccion de features
         logger.info("[3/5] Extrayendo features (representacion: %s)...", self.config.representation)
         X_clustering, X_autoencoder = self._extract_features(preprocessed)
 
         # 4 & 5. Modelos + Evaluacion
+        # eval_idx se aplica a TODOS los modelos: las metricas se miden solo
+        # sobre el conjunto held-out inter-paciente, nunca sobre datos vistos
+        # durante el ajuste.
         logger.info("[4/5] Ejecutando y evaluando modelos...")
         results_df = self.comparator.run_all(
-            X_clustering, X_autoencoder, preprocessed.labels, autoencoder_fit_idx=fit_idx
+            X_clustering, X_autoencoder, preprocessed.labels,
+            autoencoder_fit_idx=fit_idx, eval_idx=eval_idx,
         )
 
         # 6. Guardar todos los modelos entrenados (ANTES de per-record, que es muy lento)

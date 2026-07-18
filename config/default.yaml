@@ -34,15 +34,26 @@ excluded_records:
 # Hiperparametros de modelos
 # ============================================================
 
-# K-Means: k=10 clusters + distance-scoring por percentil.
-# distance_percentile=89.5 marca como anomalo el 10.5% mas lejano
-# al centroide (coincide con la prevalencia de anomalias del dataset).
-# NOTA: este valor debe ser identico al default en config.py.
+# K-Means: k=5 clusters (analisis de codo+silhouette en notebook 04;
+# k=10 no estaba justificado y producia clusters degenerados) +
+# distance-scoring normalizado por dispersion de cluster.
+# threshold_method="iqr": el umbral se deriva de la valla de Tukey
+# (Q3 + 1.5*IQR) sobre la distribucion de scores, SIN consultar las
+# etiquetas AAMI. Esto preserva el caracter no supervisado del metodo.
+# Se prefirio sobre el metodo del codo (Satopaa et al. 2011) porque ese
+# metodo colapsa con la cola extrema de scores que produce la correccion
+# de la paradoja del singleton (ver kmeans.py); la valla de Tukey, basada
+# en cuartiles, es robusta a esa cola.
+# distance_percentile y min_cluster_size quedan como parametros del modo
+# alternativo (percentil), usado solo para el analisis de sensibilidad
+# reportado en la seccion 9c del notebook 05.
 kmeans_params:
-  n_clusters: 10
+  n_clusters: 5
   random_state: 42
   n_init: 20
-  distance_percentile: 89.5
+  threshold_method: iqr
+  distance_percentile: 89.5   # no usado con threshold_method=iqr
+  min_cluster_size: 10        # clusters con menos miembros se consideran degenerados
 
 # DBSCAN: eps auto-calibrado por k-distancias.
 # eps_percentile subido de 75 -> 90 para acercarse al "codo" de la
@@ -67,13 +78,19 @@ hdbscan_params:
 # normal (condicion necesaria para que el error discrimine anomalias).
 # Compresion 200 -> 16 (~12x), en linea con Yuan et al. 2020.
 # epochs=100 con EarlyStopping (patience=5) que corta al converger.
+#
+# normal_fpr (antes "anomaly_rate"): presupuesto de FALSAS ALARMAS
+# sobre la clase normal, NO la prevalencia del dataset. El nombre
+# anterior era enganoso: el umbral se calcula sobre el fit set, que
+# es 100% normal, de modo que "tasa de anomalia" no aplicaba.
 autoencoder_params:
   encoding_dim: 16
   hidden_layers: [64, 32]
   epochs: 100
   batch_size: 256
-  anomaly_rate: 0.105
+  normal_fpr: 0.105
   learning_rate: 0.001
+  random_state: 42
 
 # Salida
 output_dir: ./results
