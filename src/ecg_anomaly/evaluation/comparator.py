@@ -78,6 +78,15 @@ class ModelComparator:
         if fit_idx is not None:
             detector.anomaly_labels_ = detector.predict_anomalies(X)
 
+            # labels_ (asignacion de cluster) tambien queda corta si el
+            # fit fue solo sobre fit_idx (p. ej. K-Means inductivo): sin
+            # esto, evaluate_intrinsic(X, detector.labels_) mas abajo
+            # rompe por desajuste de forma. DBSCAN/HDBSCAN no exponen
+            # predict() (son transductivos por diseño) y no llegan aqui
+            # porque su fit_idx siempre es None.
+            if hasattr(detector, "predict"):
+                detector.labels_ = detector.predict(X)
+
         detector.fit_time_seconds = tracker.elapsed_seconds
         detector.peak_memory_mb = tracker.peak_memory_mb
 
@@ -150,7 +159,7 @@ class ModelComparator:
         X_clustering: np.ndarray,
         X_autoencoder: np.ndarray,
         true_labels: np.ndarray,
-        autoencoder_fit_idx: Optional[np.ndarray] = None,
+        inductive_fit_idx: Optional[np.ndarray] = None,
         eval_idx: Optional[np.ndarray] = None,
     ) -> pd.DataFrame:
         """Ejecuta todos los modelos configurados.
@@ -159,25 +168,34 @@ class ModelComparator:
             X_clustering: Features para clustering (PCA o manual).
             X_autoencoder: Features para autoencoder (raw escalado).
             true_labels: Etiquetas binarias AAMI.
-            autoencoder_fit_idx: Indices (tipicamente solo-normales) usados
-                para entrenar el autoencoder, evitando fuga de datos. Los
-                modelos de clustering puro siguen entrenando con todo
-                X_clustering (ver guia de mejoras #1, "Nota honesta").
+            inductive_fit_idx: Indices (tipicamente solo-normales de DS1)
+                usados para entrenar los modelos INDUCTIVOS (autoencoder y
+                K-Means, que exponen predict() sobre datos nuevos), evitando
+                fuga de datos y de paciente. DBSCAN y HDBSCAN son
+                TRANSDUCTIVOS por diseno (no definen una funcion de
+                asignacion para puntos nuevos: la pertenencia a un cluster
+                depende de la densidad local calculada sobre todo el
+                conjunto) y siguen entrenando con todo X_clustering — esta
+                asimetria se documenta explicitamente en notebook 05,
+                nota metodologica tras la Seccion 2.
             eval_idx: Indices held-out sobre los que se miden las metricas.
-                Se aplica a TODOS los modelos, no solo al autoencoder: solo
+                Se aplica a TODOS los modelos, no solo a los inductivos: solo
                 asi la tabla comparativa es honesta, porque todos los modelos
-                se miden sobre exactamente el mismo conjunto de latidos.
+                se miden sobre exactamente el mismo conjunto de latidos. Esto
+                cierra la fuga en la MEDICION incluso para DBSCAN/HDBSCAN,
+                aunque su AJUSTE siga viendo todo X.
 
         Returns:
             DataFrame con resultados comparativos.
         """
+        inductive_models = {"autoencoder", "kmeans"}
         for model_name in self.config.models:
             params = getattr(self.config, f"{model_name}_params", {})
             detector = DetectorFactory.create(model_name, params, seed=self.config.random_seed)
 
             # Autoencoder usa datos raw, clustering usa PCA/features
             X = X_autoencoder if model_name == "autoencoder" else X_clustering
-            fit_idx = autoencoder_fit_idx if model_name == "autoencoder" else None
+            fit_idx = inductive_fit_idx if model_name in inductive_models else None
             self.evaluate_model(detector, X, true_labels, fit_idx=fit_idx, eval_idx=eval_idx)
 
         return self.get_comparison_table()
