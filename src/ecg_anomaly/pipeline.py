@@ -86,7 +86,7 @@ class ECGAnomalyPipeline:
         logger.info("[4/5] Ejecutando y evaluando modelos...")
         results_df = self.comparator.run_all(
             X_clustering, X_autoencoder, preprocessed.labels,
-            autoencoder_fit_idx=fit_idx, eval_idx=eval_idx,
+            inductive_fit_idx=fit_idx, eval_idx=eval_idx,
         )
 
         # 6. Guardar todos los modelos entrenados (ANTES de per-record, que es muy lento)

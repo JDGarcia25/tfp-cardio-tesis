@@ -45,8 +45,10 @@ excluded_records:
 # de la paradoja del singleton (ver kmeans.py); la valla de Tukey, basada
 # en cuartiles, es robusta a esa cola.
 # distance_percentile y min_cluster_size quedan como parametros del modo
-# alternativo (percentil), usado solo para el analisis de sensibilidad
-# reportado en la seccion 9c del notebook 05.
+# alternativo de umbral (percentil sobre los scores, en vez de la valla
+# de Tukey). Ese modo no se ejercita en el pipeline principal mientras
+# threshold_method=iqr; se conserva documentado por si se quiere repetir
+# el analisis de sensibilidad, no porque el pipeline lo use.
 kmeans_params:
   n_clusters: 5
   random_state: 42

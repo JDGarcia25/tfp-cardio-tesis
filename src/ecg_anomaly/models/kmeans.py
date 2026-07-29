@@ -88,6 +88,15 @@ class KMeansDetector(BaseAnomalyDetector):
         scores = self.score_anomalies(X)
         return np.where(scores >= self._threshold, 1, 0)
 
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Asigna cluster a datos nuevos (proyeccion inductiva).
+
+        Usa el modelo KMeans ya ajustado en fit(); no reajusta centroides.
+        Necesario para que labels_ tenga longitud completa cuando el fit
+        se hizo solo sobre un subconjunto (fit_idx).
+        """
+        return self.model.predict(X)
+
     def score_anomalies(self, X: np.ndarray) -> np.ndarray:
         """Distancia al centroide NORMALIZADA por la dispersion del cluster.
 
