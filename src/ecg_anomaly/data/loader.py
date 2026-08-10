@@ -68,14 +68,17 @@ class MITBIHLoader:
         self,
         path: str,
         records: Optional[List[str]] = None,
-        channel: int = 0,
+        channel: str = "MLII",
     ) -> ECGDataset:
         """Carga registros MIT-BIH.
 
         Args:
             path: Directorio con archivos .dat/.hea/.atr o None para PhysioNet.
             records: Lista de IDs de registros. None usa todos los validos (44).
-            channel: Indice del canal a usar (0=MLII por defecto).
+            channel: Nombre del canal preferido (MLII por defecto). Se busca
+                por nombre en `record.sig_name`, no por posicion: el registro
+                114 de MIT-BIH tiene el orden de canales invertido respecto
+                al resto de la base.
 
         Returns:
             ECGDataset con todos los registros cargados.
@@ -116,8 +119,27 @@ class MITBIHLoader:
 
         return dataset
 
+    def _seleccionar_canal(self, record, canal_preferido: str = "MLII") -> np.ndarray:
+        """Selecciona la derivacion por nombre, no por posicion.
+
+        El registro 114 de MIT-BIH tiene el orden de canales invertido
+        respecto al resto de la base. Indexar por posicion introduciria
+        una derivacion distinta (V5) en ese registro.
+        """
+        nombres = [n.strip().upper() for n in record.sig_name]
+        objetivo = canal_preferido.strip().upper()
+        if objetivo in nombres:
+            return record.p_signal[:, nombres.index(objetivo)]
+        # Fallback documentado: si MLII no esta disponible, usar canal 0
+        # y registrar la sustitucion.
+        logger.warning(
+            "Registro %s sin canal %s; se usa %s",
+            record.record_name, canal_preferido, record.sig_name[0],
+        )
+        return record.p_signal[:, 0]
+
     def _load_record(
-        self, path: str, record_id: str, channel: int
+        self, path: str, record_id: str, channel: str
     ) -> Optional[ECGRecord]:
         """Carga un registro individual."""
         import os
@@ -127,7 +149,7 @@ class MITBIHLoader:
         record = wfdb.rdrecord(record_path)
         annotation = wfdb.rdann(record_path, "atr")
 
-        signal = record.p_signal[:, channel]
+        signal = self._seleccionar_canal(record, channel)
 
         # Filtrar solo simbolos que representan latidos
         beat_mask = np.array(

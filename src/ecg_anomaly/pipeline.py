@@ -145,6 +145,7 @@ class ECGAnomalyPipeline:
                 preprocessed.r_peaks_flat,
                 self.config.sampling_rate,
                 preprocessed.record_indices,
+                before_r=self.config.before_r_samples,
             )
             scaler = StandardScaler()
             X_autoencoder = scaler.fit_transform(preprocessed.segments)
