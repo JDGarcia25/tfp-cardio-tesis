@@ -154,6 +154,44 @@ class ModelComparator:
 
         return result
 
+    def evaluate_model_repeated(
+        self,
+        detector_factory_fn,
+        X: np.ndarray,
+        true_labels: np.ndarray,
+        fit_idx: Optional[np.ndarray] = None,
+        eval_idx: Optional[np.ndarray] = None,
+        n_runs: int = 5,
+    ) -> Dict:
+        """Repite el ajuste n veces con semillas distintas y agrega resultados.
+
+        Necesario para modelos estocasticos (autoencoder): un solo run no
+        permite afirmar que la diferencia con otro modelo sea significativa,
+        ni distinguir variabilidad de entrenamiento de una mejora real.
+
+        Args:
+            detector_factory_fn: Funcion `seed -> BaseAnomalyDetector` que
+                construye una instancia nueva del detector con esa semilla.
+            X, true_labels, fit_idx, eval_idx: igual que en `evaluate_model`.
+            n_runs: numero de reentrenamientos independientes.
+
+        Returns:
+            Dict por metrica con `media` y `std` sobre los n_runs.
+        """
+        resultados = []
+        for i in range(n_runs):
+            det = detector_factory_fn(seed=self.config.random_seed + i)
+            r = self.evaluate_model(det, X, true_labels, fit_idx=fit_idx, eval_idx=eval_idx)
+            resultados.append(r)
+
+        claves = ["extrinsic_f1", "extrinsic_sensitivity", "extrinsic_specificity",
+                  "extrinsic_auc_roc"]
+        return {
+            k: {"media": float(np.mean([r[k] for r in resultados])),
+                "std":   float(np.std([r[k] for r in resultados]))}
+            for k in claves
+        }
+
     def run_all(
         self,
         X_clustering: np.ndarray,

@@ -60,7 +60,7 @@ kmeans_params:
 # DBSCAN: eps auto-calibrado por k-distancias.
 # eps_percentile subido de 75 -> 90 para acercarse al "codo" de la
 # curva de k-distancias (metodo canonico de Ester et al. 1996).
-# min_samples subido de 5 -> 10 por la dimensionalidad (~22 features).
+# min_samples subido de 5 -> 10 por la dimensionalidad (~18 features).
 dbscan_params:
   eps: auto
   min_samples: 10

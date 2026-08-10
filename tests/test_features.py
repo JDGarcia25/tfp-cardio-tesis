@@ -80,8 +80,49 @@ class TestManualFeatureExtractor:
         """Debe retornar array [N, N_MANUAL_FEATURES_TOTAL] (base + RR + ventana)."""
         segments, r_positions, record_idx = self._make_data(100)
         extractor = ManualFeatureExtractor()
-        features = extractor.extract(segments, r_positions, 360, record_idx)
+        features = extractor.extract(segments, r_positions, 360, record_idx, before_r=90)
         assert features.shape == (100, N_MANUAL_FEATURES_TOTAL)
+
+    def test_extract_without_before_r_raises(self):
+        """before_r es obligatorio: no debe asumirse simetria del segmento."""
+        segments, r_positions, record_idx = self._make_data(100)
+        extractor = ManualFeatureExtractor()
+        with pytest.raises(ValueError):
+            extractor.extract(segments, r_positions, 360, record_idx)
+
+    def test_fit_transform_matches_extract(self):
+        """fit()+transform() sobre el mismo conjunto debe igualar a extract()."""
+        segments, r_positions, record_idx = self._make_data(100)
+
+        extractor_a = ManualFeatureExtractor()
+        combined = extractor_a.extract(segments, r_positions, 360, record_idx, before_r=90)
+
+        extractor_b = ManualFeatureExtractor()
+        extractor_b.fit(segments, r_positions, 360, record_idx, before_r=90)
+        split = extractor_b.transform(segments, r_positions, 360, record_idx, before_r=90)
+
+        np.testing.assert_allclose(combined, split)
+
+    def test_transform_before_fit_raises(self):
+        """transform() sin fit() previo debe lanzar error."""
+        segments, r_positions, record_idx = self._make_data(10)
+        extractor = ManualFeatureExtractor()
+        with pytest.raises(RuntimeError):
+            extractor.transform(segments, r_positions, 360, record_idx, before_r=90)
+
+    def test_fit_uses_only_given_rows(self):
+        """El scaler debe ajustarse solo con las filas pasadas a fit(), no con todas."""
+        segments, r_positions, record_idx = self._make_data(100)
+
+        extractor = ManualFeatureExtractor()
+        extractor.fit(segments[:50], r_positions[:50], 360, record_idx[:50], before_r=90)
+        mean_fit_only = extractor.scaler.mean_.copy()
+
+        extractor_full = ManualFeatureExtractor()
+        extractor_full.fit(segments, r_positions, 360, record_idx, before_r=90)
+        mean_full = extractor_full.scaler.mean_
+
+        assert not np.allclose(mean_fit_only, mean_full)
 
     def test_rr_first_beat_uses_mean(self):
         """El primer latido usa mean_rr (no tiene anterior)."""
@@ -91,7 +132,7 @@ class TestManualFeatureExtractor:
         record_idx = np.zeros(n, dtype=int)
 
         extractor = ManualFeatureExtractor()
-        raw_features = extractor._extract_raw(segments, r_positions, 360, record_idx)
+        raw_features = extractor._extract_raw(segments, r_positions, 360, record_idx, before_r=90)
 
         assert raw_features[0, 4] == 1000.0
 
@@ -103,7 +144,7 @@ class TestManualFeatureExtractor:
         record_idx = np.zeros(n, dtype=int)
 
         extractor = ManualFeatureExtractor()
-        raw_features = extractor._extract_raw(segments, r_positions, 360, record_idx)
+        raw_features = extractor._extract_raw(segments, r_positions, 360, record_idx, before_r=90)
 
         assert raw_features[1, 4] == 1000.0
 
@@ -114,7 +155,7 @@ class TestManualFeatureExtractor:
         record_idx = np.array([0, 0, 0, 1, 1, 1, 2, 2, 2, 2])
 
         extractor = ManualFeatureExtractor()
-        raw_features = extractor._extract_raw(segments, r_positions, 360, record_idx)
+        raw_features = extractor._extract_raw(segments, r_positions, 360, record_idx, before_r=90)
 
         assert raw_features[3, 4] == 1000.0
 
@@ -122,5 +163,5 @@ class TestManualFeatureExtractor:
         """record_indices puede ser None."""
         segments, r_positions, _ = self._make_data(100)
         extractor = ManualFeatureExtractor()
-        features = extractor.extract(segments, r_positions, 360)
+        features = extractor.extract(segments, r_positions, 360, before_r=90)
         assert features.shape == (100, N_MANUAL_FEATURES_TOTAL)

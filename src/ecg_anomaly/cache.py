@@ -9,12 +9,18 @@ from ecg_anomaly.preprocessing.pipeline import PreprocessedData
 
 
 def get_or_build_preprocessed(
-    config: SystemConfig, cache_dir: str = "../cache", force: bool = False
+    config: SystemConfig,
+    cache_dir: str = "../cache",
+    force: bool = False,
+    channel: str = "MLII",
 ) -> PreprocessedData:
     """Carga el preprocesamiento desde disco o lo construye una sola vez.
 
     El nombre del cache incluye parametros que afectan el resultado, asi
-    un cambio de configuracion invalida el cache automaticamente.
+    un cambio de configuracion invalida el cache automaticamente. Incluye
+    el canal: un cache generado antes de que el cargador seleccionara la
+    derivacion por nombre (registro 114) no debe servirse silenciosamente
+    para una corrida con canal distinto.
     """
     from ecg_anomaly.data.loader import MITBIHLoader
     from ecg_anomaly.preprocessing.pipeline import PreprocessingPipeline
@@ -22,11 +28,11 @@ def get_or_build_preprocessed(
     cache_path_dir = Path(cache_dir)
     cache_path_dir.mkdir(parents=True, exist_ok=True)
 
-    # Firma: si cambias filtros/ventana/umbral, se regenera solo
+    # Firma: si cambias filtros/ventana/umbral/canal, se regenera solo
     signature = (
         f"pp_lc{config.filter_lowcut}_hc{config.filter_highcut}"
         f"_ord{config.filter_order}_b{config.before_r_samples}"
-        f"_a{config.after_r_samples}.joblib"
+        f"_a{config.after_r_samples}_ch{channel}.joblib"
     )
     cache_path = cache_path_dir / signature
 
@@ -36,7 +42,7 @@ def get_or_build_preprocessed(
 
     print("[cache] Construyendo preprocesamiento (esto tarda)...")
     loader = MITBIHLoader(config)
-    dataset = loader.load(config.dataset_path)
+    dataset = loader.load(config.dataset_path, channel=channel)
     pipeline = PreprocessingPipeline(config)
     preprocessed = pipeline.run(dataset)
 
