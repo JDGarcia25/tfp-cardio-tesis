@@ -17,11 +17,10 @@ FEATURE_NAMES: List[str] = [
     "rr_diff",
     "kurtosis",
     "dominant_freq_hz",
-    "spectral_energy",
     "rr_post",
     "rr_ratio_pre_post",
     "rr_dev",
-    # ==== Ventana temporal (Fase 2) — indices 12-17 ====
+    # ==== Ventana temporal (Fase 2) — indices 11-16 ====
     "rr_mean_5",
     "rr_std_5",
     "rr_mean_10",
@@ -31,21 +30,44 @@ FEATURE_NAMES: List[str] = [
 ]
 
 # ==== Constantes de dimensiones (Fase 2) ====
-# rr_ratio, mean, std y rr_pre se eliminaron de la base (eran variables
-# duplicadas o constantes por construccion, ver historial de bugs corregidos
-# en manual.py): 16 -> 12.
-N_MANUAL_FEATURES_BASE = 12
+# rr_ratio, mean, std, rr_pre y spectral_energy se eliminaron de la base
+# (variables duplicadas o constantes por construccion -- ver historial de
+# bugs corregidos en manual.py): 16 -> 12 -> 11.
+N_MANUAL_FEATURES_BASE = 11
 N_MANUAL_FEATURES_WINDOW = 6
 N_MANUAL_FEATURES_TOTAL = N_MANUAL_FEATURES_BASE + N_MANUAL_FEATURES_WINDOW
 
-# Nombres de las 6 features de ventana temporal, en orden (indices 12-17).
-# Fuente unica de verdad: no asumir el slice fijo features[:, 12:18] en
+# Nombres de las 6 features de ventana temporal, en orden (indices 11-16).
+# Fuente unica de verdad: no asumir el slice fijo features[:, 11:17] en
 # notebooks/otros modulos, derivar los indices de FEATURE_NAMES.
 WINDOW_FEATURE_NAMES: List[str] = FEATURE_NAMES[N_MANUAL_FEATURES_BASE:N_MANUAL_FEATURES_TOTAL]
 
+# ==== Winsorizacion de features derivadas de RR (ver _winsorize) ====
+# Percentiles de recorte, como constantes de modulo (no numeros magicos
+# repetidos en el codigo).
+WINSORIZE_LOWER_PERCENTILE = 0.5
+WINSORIZE_UPPER_PERCENTILE = 99.5
+
+# Solo las features derivadas del intervalo RR y de la ventana temporal
+# tienen colas desproporcionadas (medido: (max-P99)/(P99-P1) entre 13 y 166,
+# contra 0.0-2.2 en el resto). No incluye pnn_5, que ya esta acotada [0, 1]
+# por construccion, ni las morfologicas/espectrales.
+WINSORIZE_FEATURE_NAMES: List[str] = [
+    "rr_current",
+    "rr_diff",
+    "rr_post",
+    "rr_ratio_pre_post",
+    "rr_dev",
+    "rr_mean_5",
+    "rr_std_5",
+    "rr_mean_10",
+    "rr_std_10",
+    "rmssd_5",
+]
+
 
 class ManualFeatureExtractor:
-    """Extractor Path B: caracteristicas manuales (18 features).
+    """Extractor Path B: caracteristicas manuales (17 features).
 
     Extrae features morfologicas, temporales (intervalos RR),
     estadisticas, de frecuencia y de ventana deslizante de cada latido
@@ -76,13 +98,43 @@ class ManualFeatureExtractor:
     ) -> "ManualFeatureExtractor":
         """Calcula features crudas y ajusta el StandardScaler.
 
-        Separado de transform (y de extract) para poder ajustar solo con
-        un subconjunto de latidos (p. ej. normales de los registros DS1,
-        ver `data/splitting.make_interpatient_split`) y evitar fuga de
-        datos hacia la evaluacion, igual que `SignalPCAExtractor.fit()`.
+        Separado de transform (y de extract) para poder ajustar solo con un
+        subconjunto de latidos y evitar fuga de datos hacia la evaluacion,
+        igual que `SignalPCAExtractor.fit()` -- PERO, a diferencia de esa
+        clase, `segments` aqui NO debe ser un subconjunto pre-indexado
+        cuando las features dependen de la SECUENCIA de latidos
+        (rr_current, rr_diff, rr_post, rr_dev y las 6 de ventana).
+
+        Pasar `segments[fit_idx]` (y los arrays correspondientes) ANTES de
+        extraer calcula los intervalos RR sobre el orden del subconjunto,
+        no sobre el orden real del registro: el intervalo entre dos
+        latidos consecutivos EN EL SUBCONJUNTO salta por encima de
+        cualquier latido excluido en el medio, produciendo un RR que no
+        existe en el ritmo real del paciente. Medido con datos reales
+        (subconjunto de `data/splitting.make_interpatient_split`): esto
+        afectaba al 7,76% de las filas del split, con diferencias de hasta
+        207 segundos, y dejaba el scaler ajustado sobre una version de los
+        datos que nunca llega a `transform()`.
+
+        Patron correcto para ajustar solo con un subconjunto (p. ej.
+        normales de los registros DS1): llamar a `extract_raw()` UNA vez
+        sobre el dataset COMPLETO (secuencia real e ininterrumpida), y
+        ajustar `self.scaler` directamente sobre las filas del subconjunto
+        del resultado -- NO llamar a `fit()` con arrays ya indexados. Ver
+        `notebooks/04_clustering.ipynb` para el patron completo:
+
+            extractor = ManualFeatureExtractor()
+            raw = extractor.extract_raw(segments, r_peaks, fs, record_idx,
+                                         before_r=before_r)
+            extractor.scaler.fit(raw[fit_idx])
+            extractor._is_fitted = True
+            X = extractor.scaler.transform(raw)
 
         Args:
             segments: Array [N, beat_length] con latidos normalizados.
+                Debe cubrir la secuencia COMPLETA y en orden de cada
+                registro involucrado -- no un subconjunto salteado (ver
+                advertencia arriba).
             r_peak_positions: Posiciones absolutas de los picos R en la senal original.
             fs: Frecuencia de muestreo.
             record_indices: Array [N] indicando el registro de cada latido.
@@ -120,7 +172,7 @@ class ManualFeatureExtractor:
                 (pueden ser distintos de los usados para ajustar el scaler).
 
         Returns:
-            Array [N, 18] con features escaladas.
+            Array [N, 17] con features escaladas.
 
         Raises:
             RuntimeError: si el scaler todavia no fue ajustado.
@@ -156,10 +208,13 @@ class ManualFeatureExtractor:
         conjunto que mezcle latidos de entrenamiento y de evaluacion)
         reproduce fuga de datos.
 
-        Para evitarla, usar `fit()` solo con las filas de entrenamiento
-        (p. ej. normales de los registros DS1, ver
-        `data/splitting.make_interpatient_split`) y `transform()` sobre el
-        resto — el mismo patron que `SignalPCAExtractor`.
+        Para evitarla NO se debe llamar a `fit()` con `segments` ya
+        indexado por un subconjunto (ver advertencia detallada en el
+        docstring de `fit()`: si las features dependen de la secuencia de
+        latidos, eso corrompe el calculo de intervalos RR). El patron
+        correcto es `extract_raw()` sobre el dataset completo seguido de
+        un ajuste de `self.scaler` sobre las filas del subconjunto -- ver
+        `fit()` y `notebooks/04_clustering.ipynb`.
 
         Args:
             segments: Array [N, beat_length] con latidos normalizados.
@@ -170,7 +225,7 @@ class ManualFeatureExtractor:
                 (`config.before_r_samples`). Obligatorio.
 
         Returns:
-            Array [N, 18] con features escaladas (StandardScaler ajustado
+            Array [N, 17] con features escaladas (StandardScaler ajustado
             sobre este mismo `segments`).
         """
         self.fit(segments, r_peak_positions, fs, record_indices, before_r=before_r)
@@ -189,6 +244,9 @@ class ManualFeatureExtractor:
 
         Util para inspeccionar/visualizar features (p. ej. las de ventana
         temporal) sin pasar por el StandardScaler interno de extract().
+        Ya incluye la winsorizacion de las columnas RR/ventana (ver
+        `_winsorize`); "cruda" se refiere a "sin StandardScaler", no a
+        "sin ningun procesamiento".
         """
         return self._extract_raw(
             segments, r_peak_positions, fs, record_indices, before_r=before_r
@@ -203,7 +261,7 @@ class ManualFeatureExtractor:
         *,
         before_r: int | None = None,
     ) -> np.ndarray:
-        """Extrae features sin escalar."""
+        """Extrae features sin escalar (pero ya winsorizadas, ver _winsorize)."""
         if before_r is None:
             raise ValueError(
                 "before_r es obligatorio (pasar config.before_r_samples). No se "
@@ -248,33 +306,39 @@ class ManualFeatureExtractor:
 
             features[i, 6] = self._kurtosis(seg)
 
+            # dominant_freq_hz: no se guarda spectral_energy (eliminada, ver
+            # WINSORIZE_FEATURE_NAMES / historial de bugs: los segmentos ya
+            # llegan normalizados Z-score por latido desde el notebook 02,
+            # asi que por Parseval su energia espectral total es fija -- la
+            # columna era constante).
             fft_vals = np.abs(np.fft.fft(seg))
             half = len(fft_vals) // 2
             freq_resolution = fs / len(seg)
             features[i, 7] = np.argmax(fft_vals[:half]) * freq_resolution
-            features[i, 8] = np.sum(fft_vals[:half] ** 2)
 
             # rr_post: intervalo hacia el latido siguiente (mismo registro).
             # Fallback: features[i, 4] (rr_current, ya con su propio
             # fallback a mean_rr) en vez de una variable "rr_pre" separada
             # -- son el mismo valor, ver bug de features duplicadas.
             if i < n_beats - 1 and rr_intervals[i + 1] > 0:
-                features[i, 9] = rr_intervals[i + 1]
+                features[i, 8] = rr_intervals[i + 1]
             else:
-                features[i, 9] = features[i, 4]
+                features[i, 8] = features[i, 4]
 
-            if features[i, 4] > 0 and features[i, 9] > 0:
-                features[i, 10] = features[i, 4] / features[i, 9]
+            if features[i, 4] > 0 and features[i, 8] > 0:
+                features[i, 9] = features[i, 4] / features[i, 8]
             else:
-                features[i, 10] = 1.0
+                features[i, 9] = 1.0
 
-            features[i, 11] = (
+            features[i, 10] = (
                 abs(features[i, 4] - mean_rr) / mean_rr if mean_rr > 0 else 0.0
             )
 
-        # ==== Ventana temporal (Fase 2) — indices 12-17 ====
+        # ==== Ventana temporal (Fase 2) — indices 11-16 ====
         window_feat = self._extract_window_features(rr_intervals, n_beats, record_indices)
         features[:, N_MANUAL_FEATURES_BASE:N_MANUAL_FEATURES_TOTAL] = window_feat
+
+        self._winsorize(features)
 
         return features
 
@@ -310,6 +374,64 @@ class ManualFeatureExtractor:
             return 0.0
         m4 = np.mean((x - mean) ** 4)
         return m4 / (std ** 4) - 3.0
+
+    @staticmethod
+    def _winsorize(features: np.ndarray) -> None:
+        """Recorta (winsoriza) in-place las columnas de RR/ventana con cola larga.
+
+        Por que winsorizar y no eliminar los latidos: un diagnostico sobre
+        los 100.705 latidos reales de MIT-BIH encontro 141 (0,14%) con
+        rr_current > 2000 ms (maximo observado: 100.022 ms), y las 10
+        features en WINSORIZE_FEATURE_NAMES con colas muy por fuera del
+        resto -- (max-P99)/(P99-P1) entre 13 y 166, contra 0,0-2,2 en las
+        features morfologicas y espectrales. Esos valores extremos vienen
+        de DOS mecanismos distintos:
+
+          - Registro 207 (8 casos, los mas extremos, hasta 100 s): artefacto
+            de este pipeline. Al excluir las 472 anotaciones '!' de un
+            episodio de flutter ventricular (`NON_BEAT_SYMBOLS`), los
+            latidos justo antes y despues del episodio quedan
+            "consecutivos" y el RR entre ellos abarca todo el episodio
+            excluido.
+          - Registro 232 (116 casos, 82% del total, 2-6 s): fisiologia
+            real, NO artefacto. Sus huecos no tienen ninguna anotacion
+            excluida en el medio -- son pausas post-extrasistole en un
+            paciente con 78% de contracciones auriculares prematuras, ya
+            presentes en la anotacion experta original.
+
+        Eliminar los latidos con RR extremo borraria tambien al registro
+        232, que es precisamente el tipo de caso (arritmia real, con
+        pausas) que el sistema debe poder detectar, no un dato corrupto a
+        descartar. Winsorizar acota el peso de ambos mecanismos en la
+        distancia euclidiana de los modelos de clustering sin descartar la
+        informacion de que esos latidos son distintos del resto.
+
+        Los percentiles (WINSORIZE_LOWER_PERCENTILE / _UPPER_PERCENTILE) se
+        calculan sobre la columna COMPLETA que reciba esta llamada -- si
+        `fit()` y `transform()` se invocan con conjuntos de latidos
+        distintos, cada uno calcula sus propios limites de recorte sobre
+        sus propios datos, igual que el resto de `_extract_raw`.
+        """
+        for name in WINSORIZE_FEATURE_NAMES:
+            col_idx = FEATURE_NAMES.index(name)
+            col = features[:, col_idx]
+            lower, upper = np.percentile(
+                col, [WINSORIZE_LOWER_PERCENTILE, WINSORIZE_UPPER_PERCENTILE]
+            )
+            n_clipped_low = int(np.sum(col < lower))
+            n_clipped_high = int(np.sum(col > upper))
+            logger.info(
+                "Winsorizado '%s': %d recortados por abajo (< P%.1f=%.3f), "
+                "%d por arriba (> P%.1f=%.3f)",
+                name,
+                n_clipped_low,
+                WINSORIZE_LOWER_PERCENTILE,
+                lower,
+                n_clipped_high,
+                WINSORIZE_UPPER_PERCENTILE,
+                upper,
+            )
+            features[:, col_idx] = np.clip(col, lower, upper)
 
     # ==== Inicio: Ventana temporal (Fase 2) ====
     @staticmethod
