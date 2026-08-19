@@ -34,9 +34,16 @@ excluded_records:
 # Hiperparametros de modelos
 # ============================================================
 
-# K-Means: k=5 clusters (analisis de codo+silhouette en notebook 04;
-# k=10 no estaba justificado y producia clusters degenerados) +
-# distance-scoring normalizado por dispersion de cluster.
+# K-Means: k=3 clusters, seleccionado por mejor F1 sobre eval_idx en un
+# barrido de k = 2,3,4,5,6,8,10 bajo el protocolo real de produccion
+# (ajuste solo con fit_idx, prediccion inductiva sobre el resto, metricas
+# sobre eval_idx -- ver notebook 04, Seccion 3). k=3 da F1=0,5782 y
+# recall=0,6664, ambos maximos del barrido; k=2 maximiza el silhouette
+# (0,3370) pero el silhouette mide separacion geometrica, no capacidad de
+# deteccion. k=5 tenia mejor precision (0,5352 vs 0,5106) pero peor
+# recall -- se prioriza recall porque un falso negativo (arritmia no
+# detectada) tiene mayor costo clinico que un falso positivo.
+# Distance-scoring normalizado por dispersion de cluster.
 # threshold_method="iqr": el umbral se deriva de la valla de Tukey
 # (Q3 + 1.5*IQR) sobre la distribucion de scores, SIN consultar las
 # etiquetas AAMI. Esto preserva el caracter no supervisado del metodo.
@@ -50,7 +57,7 @@ excluded_records:
 # threshold_method=iqr; se conserva documentado por si se quiere repetir
 # el analisis de sensibilidad, no porque el pipeline lo use.
 kmeans_params:
-  n_clusters: 5
+  n_clusters: 3
   random_state: 42
   n_init: 20
   threshold_method: iqr
@@ -60,17 +67,24 @@ kmeans_params:
 # DBSCAN: eps auto-calibrado por k-distancias.
 # eps_percentile subido de 75 -> 90 para acercarse al "codo" de la
 # curva de k-distancias (metodo canonico de Ester et al. 1996).
-# min_samples subido de 5 -> 10 por la dimensionalidad (~18 features).
+# min_samples subido de 5 -> 10 por la dimensionalidad (~17 features).
 dbscan_params:
   eps: auto
   min_samples: 10
   eps_percentile: 90
 
-# HDBSCAN: sin epsilon manual para preservar su seleccion automatica
-# de densidad (razon por la que se incluye frente a DBSCAN).
-# cluster_selection_epsilon=0.0 -> neutro (no fuerza corte manual).
-# min_cluster_size subido de 30 -> 50 para reducir fragmentacion
-# con ~100k latidos.
+# HDBSCAN: se probo un barrido de 45 combinaciones (min_cluster_size
+# 50-2000, min_samples 5-25, cluster_selection_epsilon 0.0-0.5) sobre una
+# submuestra ESTRATIFICADA de 20.000 latidos, y min_cluster_size=200 /
+# min_samples=25 dio el mejor F1 ahi (0,4005; 3 clusters, 36,04% de
+# ruido). Ese resultado NO transfiere al dataset completo: los umbrales
+# de densidad de HDBSCAN dependen del tamano del conjunto, y sobre los
+# 100.705 latidos reales esa configuracion dio 65 clusters y 54,5% de
+# ruido -- peor que el 44,9% de esta configuracion original. Se
+# conservan min_cluster_size=50 / min_samples=10.
+# cluster_selection_epsilon se deja en 0.0: no tuvo efecto medible en
+# ninguna de las 45 combinaciones probadas (mismo resultado para 0.0,
+# 0.1 y 0.5 con mcs/min_samples fijos).
 hdbscan_params:
   min_cluster_size: 50
   min_samples: 10
@@ -78,7 +92,7 @@ hdbscan_params:
 
 # Autoencoder: capacidad aumentada para poder reconstruir la clase
 # normal (condicion necesaria para que el error discrimine anomalias).
-# Compresion 200 -> 16 (~12x), en linea con Yuan et al. 2020.
+# Compresion 200 -> 16 (~12x).
 # epochs=100 con EarlyStopping (patience=5) que corta al converger.
 #
 # normal_fpr (antes "anomaly_rate"): presupuesto de FALSAS ALARMAS
