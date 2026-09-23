@@ -45,6 +45,12 @@ class ECGAnomalyPipeline:
         set_global_seed(config.random_seed)
         self.comparator = ModelComparator(config)
         self._scaler: StandardScaler | None = None
+        # Scaler del autoencoder. En manual_features NO es el mismo que
+        # self._scaler: el clustering consume 17 features y el autoencoder
+        # consume la senal cruda escalada (200 muestras). Guardar uno por
+        # el otro deja la API sirviendo un scaler con la dimension
+        # equivocada, y el error solo aparece en tiempo de inferencia.
+        self._ae_scaler: StandardScaler | None = None
         self._pca = None
 
     def run(self) -> pd.DataFrame:
@@ -77,7 +83,9 @@ class ECGAnomalyPipeline:
 
         # 3. Extraccion de features
         logger.info("[3/5] Extrayendo features (representacion: %s)...", self.config.representation)
-        X_clustering, X_autoencoder = self._extract_features(preprocessed)
+        # fit_idx se pasa explicitamente: el escalado debe ajustarse SOLO con
+        # los normales de DS1, igual que en notebooks/04_clustering.ipynb.
+        X_clustering, X_autoencoder = self._extract_features(preprocessed, fit_idx)
 
         # 4 & 5. Modelos + Evaluacion
         # eval_idx se aplica a TODOS los modelos: las metricas se miden solo
@@ -128,28 +136,62 @@ class ECGAnomalyPipeline:
 
         return results_df
 
-    def _extract_features(self, preprocessed):
-        """Extrae features segun la representacion configurada."""
+    def _extract_features(self, preprocessed, fit_idx: np.ndarray):
+        """Extrae features segun la representacion configurada.
+
+        El escalado (y el PCA en Path A) se ajusta UNICAMENTE con `fit_idx`
+        --los latidos normales de los registros DS1-- y se aplica luego a
+        todo el dataset. Ajustarlo sobre el dataset completo mete latidos de
+        DS2 y anomalias en la media y la desviacion del scaler, que es fuga
+        de datos hacia la evaluacion: las metricas salen optimistas y dejan
+        de coincidir con las de notebooks/04_clustering.ipynb.
+
+        Args:
+            preprocessed: Salida de PreprocessingPipeline.run().
+            fit_idx: Indices de ajuste (normales de DS1), tal como los
+                devuelve `make_interpatient_split`.
+        """
         if self.config.representation == "signal_pca":
             extractor = SignalPCAExtractor(
                 self.config.pca_variance_threshold, random_state=self.config.random_seed
             )
-            X_clustering = extractor.fit_transform(preprocessed.segments)
+            # fit solo con fit_idx; transform sobre todo el dataset.
+            extractor.fit(preprocessed.segments[fit_idx])
+            X_clustering = extractor.transform(preprocessed.segments)
             X_autoencoder = extractor.get_raw_for_autoencoder(preprocessed.segments)
             self._scaler = extractor.scaler
+            # En Path A el autoencoder consume la senal escalada por ESTE
+            # mismo scaler (sin PCA), asi que ambos coinciden.
+            self._ae_scaler = extractor.scaler
             self._pca = extractor.pca
         elif self.config.representation == "manual_features":
             extractor = ManualFeatureExtractor()
-            X_clustering = extractor.extract(
+            # Las features RR dependen de la SECUENCIA real de latidos, por
+            # eso se extraen una sola vez sobre el dataset completo y el
+            # ajuste solo-normales se aplica despues sobre las filas de
+            # fit_idx. Pasar segments[fit_idx] a extract()/fit() calcularia
+            # intervalos RR que saltan por encima de los latidos excluidos
+            # (ver el docstring de ManualFeatureExtractor.fit).
+            raw = extractor.extract_raw(
                 preprocessed.segments,
                 preprocessed.r_peaks_flat,
                 self.config.sampling_rate,
                 preprocessed.record_indices,
                 before_r=self.config.before_r_samples,
             )
-            scaler = StandardScaler()
-            X_autoencoder = scaler.fit_transform(preprocessed.segments)
+            extractor.scaler.fit(raw[fit_idx])
+            extractor._is_fitted = True
+            X_clustering = extractor.scaler.transform(raw)
+
+            # El autoencoder trabaja sobre la senal cruda escalada, con su
+            # propio scaler de 200 dimensiones, tambien ajustado solo con
+            # fit_idx.
+            ae_scaler = StandardScaler()
+            ae_scaler.fit(preprocessed.segments[fit_idx])
+            X_autoencoder = ae_scaler.transform(preprocessed.segments)
+
             self._scaler = extractor.scaler
+            self._ae_scaler = ae_scaler
             self._pca = None
         else:
             raise ValueError(
@@ -176,12 +218,22 @@ class ECGAnomalyPipeline:
             model_dir = models_dir / name
             model_dir.mkdir(parents=True, exist_ok=True)
 
-            # scaler.joblib (compartido)
-            if self._scaler is not None:
-                joblib.dump(self._scaler, model_dir / "scaler.joblib")
+            # scaler.joblib: cada modelo recibe el scaler con el que fue
+            # entrenado. El autoencoder consume la senal cruda escalada; los
+            # demas consumen las features de clustering. En manual_features
+            # esos dos scalers tienen dimensiones distintas (200 vs 17), asi
+            # que intercambiarlos rompe la inferencia en predictor.py.
+            scaler_del_modelo = (
+                self._ae_scaler if name == "autoencoder" else self._scaler
+            )
+            if scaler_del_modelo is not None:
+                joblib.dump(scaler_del_modelo, model_dir / "scaler.joblib")
 
-            # pca.joblib (compartido)
-            if self._pca is not None:
+            # pca.joblib: solo para los modelos que lo consumen. El
+            # autoencoder aprende su propia compresion y nunca pasa por PCA
+            # (ver predictor._run_model), guardarlo ahi solo genera
+            # artefactos huerfanos que contradicen la configuracion real.
+            if self._pca is not None and name != "autoencoder":
                 joblib.dump(self._pca, model_dir / "pca.joblib")
 
             # config.json
