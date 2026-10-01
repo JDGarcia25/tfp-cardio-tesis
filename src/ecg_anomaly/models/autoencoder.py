@@ -52,7 +52,6 @@ class AutoencoderDetector(BaseAnomalyDetector):
 
     def fit(self, X: np.ndarray) -> "AutoencoderDetector":
         try:
-            import tensorflow as tf
             from tensorflow import keras
         except ModuleNotFoundError:
             logger.warning("TensorFlow no está instalado; usando fallback PCA-based para continuar.")
@@ -60,8 +59,12 @@ class AutoencoderDetector(BaseAnomalyDetector):
 
         random_state = self.params.get("random_state", 42)
 
-        # Reproducibilidad
-        tf.random.set_seed(random_state)
+        # Reproducibilidad: en Keras 3 los inicializadores y el Dropout toman su
+        # semilla del `random` de Python, no de la semilla global de TensorFlow.
+        # Reiniciar solo TF (tf.random.set_seed) no hace que dos fit()
+        # consecutivos partan de los mismos pesos; set_random_seed reinicia
+        # random, NumPy, TF y el generador global de Keras.
+        keras.utils.set_random_seed(random_state)
 
         # Construir modelo
         model = self._build_model(X.shape[1], keras)
