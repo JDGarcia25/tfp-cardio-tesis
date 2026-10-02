@@ -177,19 +177,6 @@ El proyecto sigue **Design Science Research Methodology (DSRM)** (Peffers et al.
 
 ## Interpretacion Clinica de Resultados
 
-### Niveles de Alerta Clinica
-
-El frontend incluye un sistema de **semáforo clínico** que clasifica cada latido en cuatro niveles de alerta:
-
-| Nivel | Color | Criterio | Accion Recomendada |
-|-------|-------|----------|--------------------|
-| **Normal** | 🟢 Verde | Sin anomalia detectada | Continuar monitoreo |
-| **Alerta Leve** | 🟡 Amarillo | Error de reconstruccion > umbral (ratio < 2×) | Revisar en siguiente ciclo |
-| **Alerta Moderada** | 🟠 Naranja | Error de reconstruccion 2-3× el umbral | Evaluacion prioritaria |
-| **Critico** | 🔴 Rojo | Error de reconstruccion > 3× el umbral | Intervencion inmediata |
-
-Los umbrales de alerta se basan en el **ratio error/umbral** del autoencoder. En modo CSV, el nivel de alerta global depende del porcentaje de anomalias detectadas en el registro completo.
-
 ### Metricas Clave para Diagnostico
 
 - **Sensibilidad (Recall):** La metrica mas importante en contexto clinico. Un falso negativo (anomalia no detectada) puede tener consecuencias graves. El modelo con mayor sensibilidad debe preferirse para screening.

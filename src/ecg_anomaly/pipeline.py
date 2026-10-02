@@ -48,8 +48,8 @@ class ECGAnomalyPipeline:
         # Scaler del autoencoder. En manual_features NO es el mismo que
         # self._scaler: el clustering consume 17 features y el autoencoder
         # consume la senal cruda escalada (200 muestras). Guardar uno por
-        # el otro deja la API sirviendo un scaler con la dimension
-        # equivocada, y el error solo aparece en tiempo de inferencia.
+        # el otro deja en disco un scaler con la dimension equivocada, y el
+        # error solo aparece al reusar el modelo serializado.
         self._ae_scaler: StandardScaler | None = None
         self._pca = None
 
@@ -222,7 +222,7 @@ class ECGAnomalyPipeline:
             # entrenado. El autoencoder consume la senal cruda escalada; los
             # demas consumen las features de clustering. En manual_features
             # esos dos scalers tienen dimensiones distintas (200 vs 17), asi
-            # que intercambiarlos rompe la inferencia en predictor.py.
+            # que intercambiarlos rompe cualquier inferencia posterior.
             scaler_del_modelo = (
                 self._ae_scaler if name == "autoencoder" else self._scaler
             )
@@ -230,8 +230,8 @@ class ECGAnomalyPipeline:
                 joblib.dump(scaler_del_modelo, model_dir / "scaler.joblib")
 
             # pca.joblib: solo para los modelos que lo consumen. El
-            # autoencoder aprende su propia compresion y nunca pasa por PCA
-            # (ver predictor._run_model), guardarlo ahi solo genera
+            # autoencoder aprende su propia compresion y nunca pasa por PCA;
+            # guardarlo ahi solo genera
             # artefactos huerfanos que contradicen la configuracion real.
             if self._pca is not None and name != "autoencoder":
                 joblib.dump(self._pca, model_dir / "pca.joblib")
