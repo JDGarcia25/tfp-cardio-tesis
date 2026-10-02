@@ -38,7 +38,8 @@ excluded_records:
 # threshold_method="iqr": el umbral se deriva de la valla de Tukey
 # (Q3 + 1.5*IQR) sobre la distribucion de scores, SIN consultar las
 # etiquetas AAMI. Esto preserva el caracter no supervisado del metodo.
-# Se prefirio sobre el metodo del codo (Satopaa et al. 2011) porque ese
+# Para el UMBRAL de anomalia se prefirio sobre el metodo del codo aplicado
+# a la curva de scores ordenados (Kneedle, Satopaa et al. 2011) porque ese
 # metodo colapsa con la cola extrema de scores que produce la correccion
 # de la paradoja del singleton (ver kmeans.py); la valla de Tukey, basada
 # en cuartiles, es robusta a esa cola.

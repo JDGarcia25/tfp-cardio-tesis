@@ -24,7 +24,7 @@ class SystemConfig:
 
     # Dataset
     dataset_name: str = "mitbih"
-    dataset_path: str = "./data/mitbih"
+    dataset_path: str = "BD2-20260218T192722Z-1-001/BD2"
 
     # Modelos a ejecutar
     models: List[str] = field(
@@ -32,7 +32,7 @@ class SystemConfig:
     )
 
     # Representacion de datos: "signal_pca" (Path A) o "manual_features" (Path B)
-    representation: str = "signal_pca"
+    representation: str = "manual_features"
 
     # Senal ECG
     sampling_rate: int = 360
@@ -57,7 +57,7 @@ class SystemConfig:
     # silenciosamente de la configuracion documentada.
     kmeans_params: Dict = field(
         default_factory=lambda: {
-            "n_clusters": 5,
+            "n_clusters": 3,
             "random_state": 42,
             "n_init": 20,
             "threshold_method": "iqr",
@@ -66,13 +66,13 @@ class SystemConfig:
         }
     )
     dbscan_params: Dict = field(
-        default_factory=lambda: {"eps": "auto", "min_samples": 5, "eps_percentile": 75}
+        default_factory=lambda: {"eps": "auto", "min_samples": 10, "eps_percentile": 90}
     )
     hdbscan_params: Dict = field(
         default_factory=lambda: {
-            "min_cluster_size": 30,
-            "min_samples": 15,
-            "cluster_selection_epsilon": 0.5,
+            "min_cluster_size": 50,
+            "min_samples": 10,
+            "cluster_selection_epsilon": 0.0,
         }
     )
     autoencoder_params: Dict = field(

@@ -27,7 +27,12 @@ class TestECGAnomalyPipeline:
 
         config.representation = "signal_pca"
         pipeline = ECGAnomalyPipeline(config)
-        X_clust, X_ae = pipeline._extract_features(MockPreprocessed())
+        preprocessed = MockPreprocessed()
+        # Igual que en el pipeline real: el ajuste usa solo latidos normales,
+        # pero la transformacion cubre todo el dataset.
+        fit_idx = np.where(preprocessed.labels == 0)[0]
+        X_clust, X_ae = pipeline._extract_features(preprocessed, fit_idx)
+        assert X_clust.shape[0] == 100
         assert X_clust.shape[1] <= 200
         assert X_ae.shape == (100, 200)
 
@@ -35,7 +40,7 @@ class TestECGAnomalyPipeline:
         pipeline = ECGAnomalyPipeline(config)
         config.representation = "invalid_rep"
         with pytest.raises(ValueError, match="no soportada"):
-            pipeline._extract_features(None)
+            pipeline._extract_features(None, np.array([], dtype=int))
 
     def test_run_returns_dataframe(self, config):
         config.models = ["kmeans"]
