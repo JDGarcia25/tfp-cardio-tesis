@@ -104,10 +104,14 @@ class ModelComparator:
             intrinsic = evaluate_intrinsic(X, detector.labels_)
             result.update({f"intrinsic_{k}": v for k, v in intrinsic.items()})
 
-        # Puntuaciones continuas para un AUC-ROC real. DBSCAN no define un
-        # score de anomalia con sentido de ordenamiento (su salida es una
-        # particion con ruido, no un ranking), asi que su AUC quedara en NaN.
-        # Reportar NaN es correcto: es mas honesto que fabricar un numero.
+        # Puntuaciones continuas para el AUC-ROC. DBSCAN y HDBSCAN si exponen
+        # score_anomalies(): distancia al vecino mas cercano entre los puntos
+        # de referencia (core samples en DBSCAN, puntos no-ruido en HDBSCAN).
+        # Ese score es el que alimenta su AUC-ROC, pero NO es la misma funcion
+        # de decision que produce sus etiquetas binarias (que salen de
+        # labels_ == -1). Por eso el AUC de estos dos modelos no describe al
+        # mismo clasificador cuyo F1 se reporta. Si un modelo no expone
+        # score_anomalies(), su AUC queda en NaN.
         scores = None
         try:
             scores = detector.score_anomalies(X)[idx_metricas]
@@ -209,11 +213,13 @@ class ModelComparator:
             inductive_fit_idx: Indices (tipicamente solo-normales de DS1)
                 usados para entrenar los modelos INDUCTIVOS (autoencoder y
                 K-Means, que exponen predict() sobre datos nuevos), evitando
-                fuga de datos y de paciente. DBSCAN y HDBSCAN son
-                TRANSDUCTIVOS por diseno (no definen una funcion de
-                asignacion para puntos nuevos: la pertenencia a un cluster
-                depende de la densidad local calculada sobre todo el
-                conjunto) y siguen entrenando con todo X_clustering — esta
+                fuga de datos y de paciente. DBSCAN y HDBSCAN se entrenan
+                en este trabajo de forma TRANSDUCTIVA: la pertenencia a un
+                cluster depende de la densidad local calculada sobre todo el
+                conjunto y sus etiquetas salen de labels_ == -1, asi que
+                siguen entrenando con todo X_clustering. (Su
+                predict_anomalies() auxiliar para puntos nuevos no interviene
+                en ninguna metrica reportada.) Esta
                 asimetria se documenta explicitamente en notebook 05,
                 nota metodologica tras la Seccion 2.
             eval_idx: Indices held-out sobre los que se miden las metricas.

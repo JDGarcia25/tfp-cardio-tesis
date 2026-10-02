@@ -167,6 +167,14 @@ poetry run ecg-run --config config/default.yaml --representation manual_features
 
 ## Salida esperada del pipeline completo
 
+> **Salida ilustrativa de una corrida antigua.** El log siguiente corresponde a
+> una version anterior del pipeline (representacion `signal_pca`, con PCA de
+> 12 componentes) y sirve solo para mostrar el formato de la salida.
+> Sus cifras (F1, AUC-ROC, Silhouette, tiempos, modelo ganador) **no** son los
+> resultados vigentes. Los resultados actuales estan en
+> `notebooks/05_evaluation.ipynb` (Seccion 3): F1 de K-Means 0,5782,
+> autoencoder 0,2582, HDBSCAN 0,1738 y DBSCAN 0,1649.
+
 ```
 17:31:43 [ecg_anomaly.data.loader] INFO: Cargados 44 registros: 100733 latidos (90125 normal, 10608 anomalo)
 17:31:43 [ecg_anomaly.preprocessing.pipeline] INFO: Preprocesamiento completo: 100705 latidos

@@ -55,6 +55,12 @@ class HDBSCANDetector(BaseAnomalyDetector):
             labels, _ = approximate_predict(self.model, X)
             return np.where(labels == -1, 1, 0)
         except (ImportError, AttributeError):
+            # Con la implementacion de scikit-learn (la que usa fit()) esta
+            # rama se activa SIEMPRE: approximate_predict de la biblioteca
+            # hdbscan requiere el atributo prediction_data_, que el objeto
+            # sklearn.cluster.HDBSCAN no expone (AttributeError). La
+            # asignacion efectiva para puntos nuevos es entonces este
+            # fallback por vecino mas cercano con umbral en el percentil 95.
             from sklearn.neighbors import NearestNeighbors
 
             core_mask = self.labels_ >= 0
